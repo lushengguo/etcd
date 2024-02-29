@@ -1,8 +1,4 @@
-enum Command {
-    Insert,
-    Update,
-    Delete,
-}
+
 
 struct Log {
     term: u64,
