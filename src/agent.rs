@@ -1,12 +1,14 @@
+use crate::operation;
+use operation::Operation;
+use tokio::io::{self, AsyncReadExt};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
-mod operation;
 
 // async fn get_leader_node_connection() -> &TcpStream {}
 
 async fn redirect_to_leader_node(operation: String) {}
 
-async fn new_connection_handler(socket: TcpStream) {
+async fn new_connection_handler(mut socket: TcpStream) {
     let mut payload: u64 = 0;
     let mut payload_buf = vec![0u8; 8];
 
@@ -16,7 +18,7 @@ async fn new_connection_handler(socket: TcpStream) {
             .await
             .expect("failed to read data from socket");
 
-        if n == 0 {
+        if n == 0 || n != 8 {
             return;
         }
 
@@ -31,28 +33,34 @@ async fn new_connection_handler(socket: TcpStream) {
             payload_buf[7],
         ]);
 
-        if (payload == 0 || payload > 1024) {
+        if payload == 0 || payload > 1024 {
             println!("invalid payload size: {}", payload);
             return;
         }
 
-        let mut buf = vec![0u8; payload];
+        let mut buf = vec![0u8; payload as usize];
 
         let n = socket
             .read_exact(&mut buf)
             .await
             .expect("failed to read data from socket");
 
-        let data = String::from_utf8(buf.to_vec()).unwrap();
-        match operation::parse(data) {
-            Ok(operation) => redirect_to_leader_node(data),
+        if n == 0 || n != payload as usize {
+            return;
+        }
+
+        match Operation::new(&buf) {
+            Ok(operation) => {
+                let data = String::from_utf8(buf.to_vec()).unwrap();
+                redirect_to_leader_node(data).await;
+            }
             Err(err) => println!("parse operation failed: {}", err),
         };
     }
 }
 
-async fn start_agent(port: u32) {
-    let address = format!("127.0.0.1:5000", port);
+pub async fn start_agent() {
+    let address = format!("127.0.0.1:5000");
     let listener = TcpListener::bind(address)
         .await
         .expect("Failed to bind to address");

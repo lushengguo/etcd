@@ -1,4 +1,5 @@
 // main.rs
+mod operation;
 
 #[cfg(feature = "server")]
 mod server;
@@ -18,5 +19,5 @@ async fn main() {
     client::start_client();
 
     #[cfg(feature = "agent")]
-    client::start_agent();
+    agent::start_agent();
 }

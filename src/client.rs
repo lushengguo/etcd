@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use regex::Regex;
+use tokio::io::AsyncWriteExt;
 
-mod net;
+// mod net;
 
 async fn connect(address: &String) -> Result<TcpStream, tokio::io::Error> {
     match TcpStream::connect(address).await {
@@ -19,29 +20,26 @@ async fn connect(address: &String) -> Result<TcpStream, tokio::io::Error> {
 }
 
 pub async fn start_client() {
-    match connect("127.0.0.1:5000").await // agent 
+    let address = "127.0.0.1:5000".to_string();
+    match connect(&address).await // agent 
     {
-        Ok(socket) => {
+        Ok(mut socket) => {
             let mut input = String::new();
-            let re = Regex::new(r"op=(Insert|Modify|Delete),key=(\w+),value=(\w+)").unwrap();
+            let re = Regex::new(r"(Insert|Modify|Delete) (\w+) (\w+)").unwrap();
             match std::io::stdin().read_line(&mut input) {
                 Ok(_) => {
-                    let mut serialized_op = String::new();
+                    if let Some(captures) = re.captures(input.as_str()) {
+                        let payload = input.len() as u64;
+                        let mut payload_buf = [0u8; 8];
+                        payload_buf.copy_from_slice(&payload.to_be_bytes());
+                        socket.write_all(&payload_buf).await.expect("failed to write data to socket");
 
-                    if let Some(captures) = re.captures(text) {
-                        if let Some(op) = captures.get(1) {
-                            serialized_op.push(op);
-                        }
+                        let mut data_buf = vec![0u8; payload as usize];
+                        data_buf.copy_from_slice(input.as_bytes());
+                        socket.write_all(&data_buf).await.expect("failed to write data to socket");
 
-                        if let Some(key) = captures.get(2) {
-                            serialized_op.push(key);
-                        }
-
-                        if let Some(value) = captures.get(3) {
-                            serialized_op.push(value);
-                        }
                     } else {
-                        println!("No match found.");
+                        println!("input is not valid, pattern should be operation key value ,and operation should be Insert, Modify or Delete.");
                     }
                 }
                 Err(error) => {
