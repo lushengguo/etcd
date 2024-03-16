@@ -23,14 +23,14 @@ async fn new_connection_handler(mut socket: TcpStream) {
         }
 
         payload = u64::from_le_bytes([
-            payload_buf[0],
-            payload_buf[1],
-            payload_buf[2],
-            payload_buf[3],
-            payload_buf[4],
-            payload_buf[5],
-            payload_buf[6],
             payload_buf[7],
+            payload_buf[6],
+            payload_buf[5],
+            payload_buf[4],
+            payload_buf[3],
+            payload_buf[2],
+            payload_buf[1],
+            payload_buf[0],
         ]);
 
         if payload == 0 || payload > 1024 {

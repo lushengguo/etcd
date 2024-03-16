@@ -13,11 +13,11 @@ mod agent;
 #[tokio::main]
 async fn main() {
     #[cfg(feature = "server")]
-    server::start_server();
+    server::start_server().await;
 
     #[cfg(feature = "client")]
-    client::start_client();
+    client::start_client().await;
 
     #[cfg(feature = "agent")]
-    agent::start_agent();
+    agent::start_agent().await;
 }
