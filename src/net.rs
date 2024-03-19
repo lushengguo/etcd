@@ -7,3 +7,7 @@ async fn connect(address: &String) -> Result<TcpStream, tokio::io::Error> {
         Err(e) => Err(e),
     }
 }
+
+
+pub async send_to_node(message:&Vec<u8>, index:usize) -> Result<(), tokio::io::Error> {
+}
