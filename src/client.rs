@@ -25,6 +25,7 @@ pub async fn start_client() {
     {
         Ok(mut socket) => {
             let mut input = String::new();
+            println!("please enter command like \"op key value\" and op should be \"Insert\", \"Modify\" or \"Delete\"");
             let re = Regex::new(r"(Insert|Modify|Delete) (\w+) (\w+)").unwrap();
             loop{
                 match std::io::stdin().read_line(&mut input) {
@@ -35,7 +36,7 @@ pub async fn start_client() {
                             let mut payload_buf = [0u8; 8];
                             payload_buf.copy_from_slice(&payload.to_be_bytes());
                             socket.write_all(&payload_buf).await.expect("failed to write data to socket");
-
+ 
                             let mut data_buf = vec![0u8; input_len as usize];
                             data_buf.copy_from_slice(input.as_bytes());
                             data_buf.pop();

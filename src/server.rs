@@ -31,7 +31,7 @@ async fn serve(port: u32) {
     }
 }
 
-async fn start_server() {
+pub async fn start_server() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("Usage: {} <process_index: u32>", args[0]);
