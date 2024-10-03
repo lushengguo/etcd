@@ -1,17 +1,21 @@
 [package]
-name = "raft"
-version = "0.1.0"
+name = "etcd"
+version = "1.0.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-tarpc = { version = "0.25", features = ["full"] }
+lazy_static = "1.4"
+tonic = "0.12.3"
+prost = "0.13"
 tokio = { version = "1", features = ["full"] }
-regex = "1"
-etcd-rs = "0.3.0"
 
-[features]
-server = []
-client = []
-agent = []
+[build-dependencies]
+tonic-build = "0.12.3"
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
+
+[[bin]]
+name = "client"
+path = "src/client.rs"

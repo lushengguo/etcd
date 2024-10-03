@@ -1,44 +1,69 @@
+use etcd_proto::etcd_server::{Etcd, EtcdServer};
+use etcd_proto::{Request as EtcdRequest, Response as EtcdResponse};
+use lazy_static::lazy_static;
 use std::collections::HashMap;
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
+use std::sync::Mutex;
+use tonic::{transport::Server, Request, Response, Status};
 
-enum RaftState {
-    Follower,
-    Candidate,
-    Leader,
+pub mod etcd_proto {
+    tonic::include_proto!("etcd_proto");
 }
 
-type Term = u64;
-type LogIndex = u64;
-type NodeId = u64;
-type DistributedConsistentData = HashMap<String, String>;
-
-pub fn process_name() -> String {
-    format!("node {}", std::env::args().nth(1).unwrap())
+lazy_static! {
+    static ref KV_STORE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 }
 
-async fn new_connection_handler(_socket: TcpStream) {}
+#[derive(Debug, Default)]
+pub struct EtcdRpcServer {}
 
-async fn serve(port: u32) {
-    let address = format!("127.0.0.1:{}", port);
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("Failed to bind to address");
+#[tonic::async_trait]
+impl Etcd for EtcdRpcServer {
+    async fn set(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
+        let req = request.into_inner();
+        let mut store = KV_STORE.lock().unwrap();
+        store.insert(req.key.clone(), req.value.clone());
+        let reply = EtcdResponse {
+            ok: true,
+            key: req.key,
+            value: req.value,
+        };
+        Ok(Response::new(reply))
+    }
 
-    loop {
-        let (socket, _) = listener.accept().await.unwrap();
-        tokio::spawn(new_connection_handler(socket));
+    async fn get(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
+        let req = request.into_inner();
+        let store = KV_STORE.lock().unwrap();
+        let value = store.get(&req.key).cloned().unwrap_or_default();
+        let reply = EtcdResponse {
+            ok: true,
+            key: req.key,
+            value,
+        };
+        Ok(Response::new(reply))
+    }
+
+    async fn del(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
+        let req = request.into_inner();
+        let mut store = KV_STORE.lock().unwrap();
+        let value = store.remove(&req.key).unwrap_or_default();
+        let reply = EtcdResponse {
+            ok: true,
+            key: req.key,
+            value,
+        };
+        Ok(Response::new(reply))
     }
 }
 
-pub async fn start_server() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <process_index: u32>", args[0]);
-        std::process::exit(1);
-    } else {
-        let port = 5000 + std::env::args().nth(1).unwrap().parse::<u32>().unwrap();
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let addr = "127.0.0.1:50051".parse().unwrap();
+    let etcd = EtcdRpcServer::default();
 
-        serve(port).await;
-    }
+    Server::builder()
+        .add_service(EtcdServer::new(etcd))
+        .serve(addr)
+        .await?;
+
+    Ok(())
 }

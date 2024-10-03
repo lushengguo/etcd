@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package etcd_proto;
+
+service Etcd {
+  rpc Set (Request) returns (Response) {}
+  rpc Get (Request) returns (Response) {}
+  rpc Del (Request) returns (Response) {}
+}
+
+message Request {
+  int32 request_id = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message Response {
+  bool ok = 1;
+  string key = 2;
+  string value = 3;
+}
