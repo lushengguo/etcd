@@ -2,6 +2,8 @@ use raft_proto::raft_server::{Raft, RaftServer};
 use raft_proto::{Request as RaftRequest, Response as RaftResponse};
 use tonic::{transport::Server, Request, Response, Status};
 
+use serde::Deserialize;
+
 use super::log::LogEntry;
 use super::state::State as NodeState;
 
@@ -9,7 +11,7 @@ pub mod raft_proto {
     tonic::include_proto!("raft_proto");
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Deserialize)]
 pub struct RemoteNode {
     pub id: u64,
     pub address: String,
@@ -29,6 +31,18 @@ impl LocalNode {
             state: NodeState::Follower,
             log: Vec::new(),
         }
+    }
+
+    pub fn set(&mut self, key: String, value: String) -> Status {
+        Status::ok("")
+    }
+
+    pub fn get(&mut self, key: String) -> Result<String, Status> {
+        Ok("".to_string())
+    }
+
+    pub fn del(&mut self, key: String) -> Status {
+        Status::ok("")
     }
 
     pub fn handle_append_entries(&mut self, entries: Vec<LogEntry>) {
