@@ -20,7 +20,9 @@ pub struct EtcdRpcServer {}
 impl Etcd for EtcdRpcServer {
     async fn set(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
         let req = request.into_inner();
-        let mut store = KV_STORE.lock().unwrap();
+        let mut store = KV_STORE
+            .lock()
+            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
         store.insert(req.key.clone(), req.value.clone());
         let reply = EtcdResponse {
             ok: true,
@@ -32,7 +34,9 @@ impl Etcd for EtcdRpcServer {
 
     async fn get(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
         let req = request.into_inner();
-        let store = KV_STORE.lock().unwrap();
+        let store = KV_STORE
+            .lock()
+            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
         let value = store.get(&req.key).cloned().unwrap_or_default();
         let reply = EtcdResponse {
             ok: true,
@@ -44,7 +48,9 @@ impl Etcd for EtcdRpcServer {
 
     async fn del(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
         let req = request.into_inner();
-        let mut store = KV_STORE.lock().unwrap();
+        let mut store = KV_STORE
+            .lock()
+            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
         let value = store.remove(&req.key).unwrap_or_default();
         let reply = EtcdResponse {
             ok: true,
@@ -57,7 +63,7 @@ impl Etcd for EtcdRpcServer {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "127.0.0.1:50051".parse().unwrap();
+    let addr = "127.0.0.1:50051".parse()?;
     let etcd = EtcdRpcServer::default();
 
     Server::builder()
