@@ -1,9 +1,12 @@
 use etcd_proto::etcd_server::{Etcd, EtcdServer};
 use etcd_proto::{Request as EtcdRequest, Response as EtcdResponse};
+use tonic::{transport::Server, Request, Response, Status};
+
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tonic::{transport::Server, Request, Response, Status};
+
+use etcd::raft::LocalNode;
 
 pub mod etcd_proto {
     tonic::include_proto!("etcd_proto");

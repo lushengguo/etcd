@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package raft_proto;
+
+service Raft {
+    rpc HelloWorld (Request) returns (Response) {}
+}
+
+message Request {
+    string message = 1;
+}
+
+message Response {
+    string message = 1;
+}
