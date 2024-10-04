@@ -2,7 +2,6 @@ use etcd_proto::etcd_server::{Etcd, EtcdServer};
 use etcd_proto::{Request as EtcdRequest, Response as EtcdResponse};
 use tonic::{transport::Server, Request, Response, Status};
 
-use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Mutex;
@@ -12,10 +11,6 @@ use etcd::raft::RemoteNode;
 
 pub mod etcd_proto {
     tonic::include_proto!("etcd_proto");
-}
-
-lazy_static! {
-    static ref KV_STORE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
 }
 
 #[derive(Debug)]
