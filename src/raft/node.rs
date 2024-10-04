@@ -1,5 +1,5 @@
-use raft_proto::raft_server::{Raft, RaftServer};
-use raft_proto::{Request as RaftRequest, Response as RaftResponse};
+use raft_protobufs::raft_server::{Raft, RaftServer};
+use raft_protobufs::{Request as RaftRequest, Response as RaftResponse};
 use tonic::{transport::Server, Request, Response, Status};
 
 use serde::Deserialize;
@@ -7,8 +7,8 @@ use serde::Deserialize;
 use super::log::LogEntry;
 use super::state::State as NodeState;
 
-pub mod raft_proto {
-    tonic::include_proto!("raft_proto");
+pub mod raft_protobufs {
+    tonic::include_proto!("raft_protobufs");
 }
 
 #[derive(Debug, Deserialize)]

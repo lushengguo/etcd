@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package etcd_proto;
+package etcd_protobufs;
 
 service Etcd {
   rpc Set (Request) returns (Response) {}

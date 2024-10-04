@@ -1,5 +1,5 @@
-use etcd_proto::etcd_server::{Etcd, EtcdServer};
-use etcd_proto::{Request as EtcdRequest, Response as EtcdResponse};
+use etcd_protobufs::etcd_server::{Etcd, EtcdServer};
+use etcd_protobufs::{Request as EtcdRequest, Response as EtcdResponse};
 use tonic::{transport::Server, Request, Response, Status};
 
 use std::collections::HashMap;
@@ -9,8 +9,8 @@ use std::sync::Mutex;
 use etcd::raft::LocalNode;
 use etcd::raft::RemoteNode;
 
-pub mod etcd_proto {
-    tonic::include_proto!("etcd_proto");
+pub mod etcd_protobufs {
+    tonic::include_proto!("etcd_protobufs");
 }
 
 #[derive(Debug)]

@@ -1,8 +1,8 @@
-use etcd_proto::etcd_client::EtcdClient;
-use etcd_proto::Request as EtcdRequest;
+use etcd_protobufs::etcd_client::EtcdClient;
+use etcd_protobufs::Request as EtcdRequest;
 
-pub mod etcd_proto {
-    tonic::include_proto!("etcd_proto");
+pub mod etcd_protobufs {
+    tonic::include_proto!("etcd_protobufs");
 }
 
 #[tokio::main]
