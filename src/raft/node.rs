@@ -50,6 +50,42 @@ pub struct LocalNode {
                             * monotonically) */
 }
 
+// Rules for all servers:
+
+// All servers
+// 1. If commitIndex > lastApplied: increment lastApplied, apply
+//    log[lastApplied] to state machine (§5.3)
+// 2. If RPC request or response contains term T > currentTerm: set currentTerm
+//    = T, convert to follower (§5.1)
+
+// Followers (§5.2):
+// 1. Respond to RPCs from candidates and leaders
+// 2. If election timeout elapses without receiving AppendEntries RPC from
+//    current leader or granting vote to candidate: convert to candidate
+
+// Candidates (§5.2):
+// 1. On conversion to candidate, start election:
+//     a. Increment currentTerm
+//     b. Vote for self
+//     c. Reset election timer
+//     d. Send RequestVote RPCs to all other servers
+// 2. If votes received from majority of servers: become leader
+// 3. If AppendEntries RPC received from new leader: convert to follower
+// 4. If election timeout elapses: start new election
+
+// Leaders (§5.2):
+// 1. Upon election: send initial empty AppendEntries RPCs (heartbeat) to each
+//    server; repeat during idle periods to prevent election timeouts (§5.2)
+// 2. If command received from client: append entry to local log, respond after
+//    entry applied to state machine (§5.3)
+// 3. If last log index ≥ nextIndex for a follower: send AppendEntries RPC with
+//    log entries starting at nextIndex:
+//     a. If successful: update nextIndex and matchIndex for follower (§5.3)
+//     b. If AppendEntries fails because of log inconsistency: decrement
+//        nextIndex and retry (§5.3)
+// 4. If there exists an N such that N > commitIndex, a majority of matchIndex[i]
+//    ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4)
+
 impl LocalNode {
     pub fn new(id: u64, other_nodes: Vec<RemoteNode>) -> Self {
         LocalNode {
@@ -78,12 +114,26 @@ impl LocalNode {
         Status::ok("")
     }
 
-    pub fn handle_append_entries(&mut self, entries: Vec<LogEntry>) {
-        // 处理 AppendEntries RPC
+    pub fn append_entries_impl(&mut self, entries: Vec<LogEntry>) {
+        // Receiver implementation:
+
+        // 1. Reply false if term < currentTerm (§5.1)
+        // 2. Reply false if log doesn’t contain an entry at prevLogIndex whose
+        //    term matches prevLogTerm (§5.3)
+        // 3. If an existing entry conflicts with a new one (same index but
+        //    different terms), delete the existing entry and all that follow it
+        //    (§5.3)
+        // 4. Append any new entries not already in the log
+        // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit,
+        //    index of last new entry)
     }
 
-    pub fn handle_request_vote(&mut self) -> bool {
-        // 处理 RequestVote RPC
+    pub fn request_vote_impl(&mut self) -> bool {
+        // Receiver implementation:
+        // 1. Reply false if term < currentTerm (§5.1)
+        // 2. If votedFor is null or candidateId, and candidate’s log is at least as
+        //    up-to-date as receiver’s log, grant vote (§5.2, §5.4)
+
         false
     }
 }
