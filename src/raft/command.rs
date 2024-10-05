@@ -19,6 +19,16 @@ pub enum CommandError {
     MissingValue,
 }
 
+impl std::fmt::Display for CommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            CommandError::InvalidCommand => write!(f, "Invalid command"),
+            CommandError::MissingKey => write!(f, "Missing key"),
+            CommandError::MissingValue => write!(f, "Missing value"),
+        }
+    }
+}
+
 impl Command {
     pub fn new(command: String) -> Result<Self, CommandError> {
         let parts: Vec<&str> = command.split_whitespace().collect();

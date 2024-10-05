@@ -1,5 +1,4 @@
 use crate::raft_protobufs::raft_client::RaftClient;
-use crate::raft_protobufs::raft_server::{Raft, RaftServer};
 use crate::raft_protobufs::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
@@ -7,8 +6,8 @@ use tonic::{transport::Channel, Request, Response, Status};
 
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
+use super::command::Command;
 use super::log::LogEntry;
 use super::state::State as NodeState;
 #[derive(Debug, Deserialize)]
@@ -19,7 +18,7 @@ pub struct RemoteNode {
 
 #[derive(Debug)]
 pub struct LocalNode {
-    data: HashMap<String, String>,
+    data: HashMap<String, String>, // aka raft's state machine
     rpc_clients: HashMap<u64, RaftClient<Channel>>,
 
     node_uid: u64,
@@ -105,17 +104,24 @@ impl LocalNode {
     }
 
     pub fn set(&mut self, key: String, value: String) -> Status {
+        self.data.insert(key, value);
         Status::ok("")
     }
 
     pub fn get(&mut self, key: String) -> Result<String, Status> {
-        Ok("".to_string())
+        match self.data.get(&key) {
+            Some(value) => Ok(value.clone()),
+            None => Err(Status::not_found("".to_string())),
+        }
     }
 
     pub fn del(&mut self, key: String) -> Status {
+        self.data.remove(&key);
         Status::ok("")
     }
 
+    // outer rpc callback holds Arc<Mutex<LocalNode>>, so rpc callback was
+    // sequential and didn't need extra lock
     pub fn append_entries_impl(
         &mut self,
         request: Request<AppendEntriesRequest>,
@@ -129,13 +135,67 @@ impl LocalNode {
         // 4. Append any new entries not already in the log
         // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index
         //    of last new entry)
-        let reply = AppendEntriesResponse {
-            term: 0,
-            success: false,
-        };
-        Ok(Response::new(reply))
+        let req = request.into_inner();
+
+        // Step 1: check term
+        if req.term < self.current_term {
+            return Ok(Response::new(AppendEntriesResponse {
+                term: self.current_term,
+                success: false,
+            }));
+        }
+
+        // Step 2: check log consistency
+        if req.prev_log_index > 0 {
+            if let Some(prev_log_entry) = self.log.get((req.prev_log_index - 1) as usize) {
+                if prev_log_entry.term != req.prev_log_term {
+                    return Ok(Response::new(AppendEntriesResponse {
+                        term: self.current_term,
+                        success: false,
+                    }));
+                }
+            } else {
+                return Ok(Response::new(AppendEntriesResponse {
+                    term: self.current_term,
+                    success: false,
+                }));
+            }
+        }
+
+        // Step 3: append new entries
+        let mut index = req.prev_log_index as usize;
+        for entry in req.entries {
+            let entry2 = LogEntry::new(
+                entry.term,
+                Some(
+                    Command::new(entry.command)
+                        .map_err(|err| Status::internal(format!("{:?}", err)))?,
+                ),
+            );
+            if index < self.log.len() {
+                self.log[index] = entry2;
+            } else {
+                self.log.push(entry2);
+            }
+            index += 1;
+        }
+
+        // Step 4: update commit_index
+        if req.leader_commit > self.commit_index {
+            self.commit_index = std::cmp::min(req.leader_commit, self.log.len() as u64);
+        }
+
+        // self.apply_log_entries();
+
+        // Step 5: return response
+        Ok(Response::new(AppendEntriesResponse {
+            term: self.current_term,
+            success: true,
+        }))
     }
 
+    // outer rpc callback holds Arc<Mutex<LocalNode>>, so rpc callback was
+    // sequential and didn't need extra lock
     pub fn request_vote_impl(
         &mut self,
         request: Request<RequestVoteRequest>,
@@ -144,10 +204,24 @@ impl LocalNode {
         // 1. Reply false if term < currentTerm (§5.1)
         // 2. If votedFor is null or candidateId, and candidate’s log is at least as
         //    up-to-date as receiver’s log, grant vote (§5.2, §5.4)
-        let reply = RequestVoteResponse {
-            term: 0,
+        let peer_term = request.get_ref().term;
+        if peer_term >= self.current_term {
+            self.current_term = peer_term;
+            if request.get_ref().last_log_term > self.log.last().unwrap().term
+                || (request.get_ref().last_log_term >= self.log.last().unwrap().term
+                    && request.get_ref().last_log_index >= self.log.len() as u64)
+            {
+                self.voted_for = Some(request.get_ref().candidate_id);
+                return Ok(Response::new(RequestVoteResponse {
+                    term: self.current_term,
+                    vote_granted: true,
+                }));
+            }
+        }
+
+        return Ok(Response::new(RequestVoteResponse {
+            term: self.current_term,
             vote_granted: false,
-        };
-        Ok(Response::new(reply))
+        }));
     }
 }
