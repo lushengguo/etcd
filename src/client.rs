@@ -1,9 +1,5 @@
-use etcd_protobufs::etcd_client::EtcdClient;
-use etcd_protobufs::EtcdRequest;
-
-pub mod etcd_protobufs {
-    tonic::include_proto!("etcd_protobufs");
-}
+use etcd::etcd_protobufs::etcd_client::EtcdClient;
+use etcd::etcd_protobufs::EtcdRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

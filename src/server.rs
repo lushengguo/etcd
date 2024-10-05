@@ -1,27 +1,25 @@
-use etcd_protobufs::etcd_server::{Etcd, EtcdServer};
-use etcd_protobufs::{EtcdRequest, EtcdResponse};
+use etcd::etcd_protobufs::etcd_server::{Etcd, EtcdServer};
+use etcd::etcd_protobufs::{EtcdRequest, EtcdResponse};
+use etcd::raft_protobufs::raft_server::{Raft, RaftServer};
+use etcd::raft_protobufs::{
+    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+};
 use tonic::{transport::Server, Request, Response, Status};
 
-use std::collections::HashMap;
 use std::env;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use etcd::raft::LocalNode;
-use etcd::raft::RemoteNode;
-
-pub mod etcd_protobufs {
-    tonic::include_proto!("etcd_protobufs");
-}
+use etcd::raft::node::{LocalNode, RemoteNode};
 
 #[derive(Debug)]
 pub struct EtcdRpcServer {
-    node: Mutex<LocalNode>,
+    node: Arc<Mutex<LocalNode>>,
 }
 
 impl EtcdRpcServer {
     pub fn new(id: u64, remote: Vec<RemoteNode>) -> Self {
         EtcdRpcServer {
-            node: Mutex::new(LocalNode::new(id, remote)),
+            node: Arc::new(Mutex::new(LocalNode::new(id, remote))),
         }
     }
 }
@@ -78,27 +76,68 @@ impl Etcd for EtcdRpcServer {
     }
 }
 
+pub struct LocalNodeWrapper(pub Arc<Mutex<LocalNode>>);
+
+#[tonic::async_trait]
+impl Raft for LocalNodeWrapper {
+    async fn append_entries(
+        &self,
+        request: Request<AppendEntriesRequest>,
+    ) -> Result<Response<AppendEntriesResponse>, Status> {
+        let mut raft_node = self.0
+            .lock()
+            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
+        raft_node.append_entries_impl(request)
+    }
+
+    async fn request_vote(
+        &self,
+        request: Request<RequestVoteRequest>,
+    ) -> Result<Response<RequestVoteResponse>, Status> {
+        let mut raft_node = self.0
+            .lock()
+            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
+        raft_node.request_vote_impl(request)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
+    if args.len() < 4 {
         eprintln!(
-            "Usage: {} <config_file_path> <current_process_raft_id>",
+            "Usage: {} <etcd_server_listen_address> <config_file_path> <current_process_raft_uid>",
             args[0]
         );
         std::process::exit(1);
     }
 
-    let json_config = std::fs::read_to_string(&args[1])?;
+    let etcd_listen_address = args[1].parse()?;
+    let json_config = std::fs::read_to_string(&args[2])?;
     let remote_config: Vec<RemoteNode> = serde_json::from_str(&json_config)?;
-    let raft_id = args[2].parse()?;
+    let raft_uid = args[3].parse()?;
+    let raft_listen_address = remote_config
+        .iter()
+        .find(|node| node.node_uid == raft_uid)
+        .expect("Current node not found in config file")
+        .address
+        .parse()?;
 
-    let addr = "127.0.0.1:50051".parse()?;
-    let etcd = EtcdRpcServer::new(raft_id, remote_config);
-    Server::builder()
+    let raft_node = Arc::new(Mutex::new(LocalNode::new(raft_uid, remote_config)));
+    let raft_wrapper = LocalNodeWrapper(Arc::clone(&raft_node));
+    let etcd = EtcdRpcServer {
+        node: Arc::clone(&raft_node),
+    };
+
+    let etcd_server = Server::builder()
         .add_service(EtcdServer::new(etcd))
-        .serve(addr)
-        .await?;
+        .serve(etcd_listen_address);
+
+    let raft_server = Server::builder()
+        .add_service(RaftServer::new(raft_wrapper))
+        .serve(raft_listen_address);
+
+    tokio::try_join!(etcd_server, raft_server)?;
 
     Ok(())
 }
