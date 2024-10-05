@@ -1,5 +1,5 @@
 use etcd_protobufs::etcd_server::{Etcd, EtcdServer};
-use etcd_protobufs::{Request as EtcdRequest, Response as EtcdResponse};
+use etcd_protobufs::{EtcdRequest, EtcdResponse};
 use tonic::{transport::Server, Request, Response, Status};
 
 use std::collections::HashMap;

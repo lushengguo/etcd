@@ -1,0 +1,6 @@
+max_width = 100
+normalize_comments = true
+# this is a unstable funny feature, got to use nightly version of rust
+# a formatter needs unstable version of rust and dirty whole project
+# ridiculous
+wrap_comments = true

@@ -3,18 +3,18 @@ syntax = "proto3";
 package etcd_protobufs;
 
 service Etcd {
-  rpc Set (Request) returns (Response) {}
-  rpc Get (Request) returns (Response) {}
-  rpc Del (Request) returns (Response) {}
+  rpc Set (EtcdRequest) returns (EtcdResponse) {}
+  rpc Get (EtcdRequest) returns (EtcdResponse) {}
+  rpc Del (EtcdRequest) returns (EtcdResponse) {}
 }
 
-message Request {
+message EtcdRequest {
   int32 request_id = 1;
   string key = 2;
   string value = 3;
 }
 
-message Response {
+message EtcdResponse {
   bool ok = 1;
   string key = 2;
   string value = 3;
