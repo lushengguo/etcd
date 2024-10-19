@@ -2,6 +2,7 @@ use crate::raft_protobufs::raft_client::RaftClient;
 use crate::raft_protobufs::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
+use log::{debug, error, info, warn, Record};
 use rand::Rng;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -250,6 +251,7 @@ impl LocalNode {
     }
 
     async fn start_election(&mut self) {
+        info!("timeout, start election now");
         self.term += 1;
         self.voted_for = Some(self.node_uid);
         let request = RequestVoteRequest {
@@ -293,10 +295,14 @@ impl LocalNode {
         responses
     }
 
-    async fn become_leader(&mut self) {}
+    async fn become_leader(&mut self) {
+        info!("become leader now");
+    }
 
     fn random_election_timeout() -> u64 {
         let mut rng = rand::thread_rng();
-        rng.gen_range(150..300)
+        let timeout = rng.gen_range(150..300);
+        info!("set election timeout to {}", timeout);
+        timeout
     }
 }

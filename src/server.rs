@@ -1,16 +1,76 @@
 use etcd::etcd_protobufs::etcd_server::{Etcd, EtcdServer};
 use etcd::etcd_protobufs::{EtcdRequest, EtcdResponse};
+use etcd::raft::node::{LocalNode, RemoteNode};
 use etcd::raft_protobufs::raft_server::{Raft, RaftServer};
 use etcd::raft_protobufs::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use tonic::{transport::Server, Request, Response, Status};
 
+use chrono::Utc;
+use env_logger::{Builder, Env};
+use log::{error, info, warn};
 use std::env;
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
+use std::thread;
 use tokio::sync::Mutex;
 
-use etcd::raft::node::{LocalNode, RemoteNode};
+struct LoggerConfig {
+    node_id: u64,
+}
+
+fn init_logger(node_id: u64) {
+    let env = Env::default().filter_or("RUST_LOG", "debug");
+    let log_file_path = format!("./log/node_{}.log", node_id);
+
+    // 创建日志目录
+    std::fs::create_dir_all("./log").expect("Unable to create log directory");
+
+    let log_file = File::create(log_file_path).expect("Unable to create log file");
+    let log_file = Arc::new(Mutex::new(log_file));
+
+    Builder::from_env(env)
+        .format(move |buf, record| {
+            let thread_id = format!("{:?}", thread::current().id());
+            let thread_id = thread_id
+                .trim_start_matches("ThreadId(")
+                .trim_end_matches(')');
+            let file = record.file().unwrap_or("unknown");
+            let file_name = Path::new(file)
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or("unknown");
+            let line = record.line().unwrap_or(0);
+            let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+            let module_path = record.module_path().unwrap_or("unknown");
+            let log_message = format!(
+                "{} node[{}] {} [{}:{}:{}] [tid={}] - {}",
+                timestamp,
+                node_id,
+                record.level(),
+                file_name,
+                line,
+                module_path,
+                thread_id,
+                record.args()
+            );
+
+            writeln!(buf, "{}", log_message).unwrap();
+
+            let log_file = Arc::clone(&log_file);
+            tokio::spawn(async move {
+                let mut log_file = log_file.lock().await;
+                writeln!(log_file, "{}", log_message).unwrap();
+            });
+
+            Ok(())
+        })
+        .init();
+}
 
 #[derive(Debug)]
 pub struct EtcdRpcServer {
@@ -110,6 +170,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Current node not found in config file")
         .address
         .parse()?;
+
+    init_logger(raft_uid);
+    info!(
+        "reading configuration from stdin or command line ok, etcd run on {}, raft run on {}",
+        etcd_listen_address, raft_listen_address
+    );
 
     let raft_node = Arc::new(Mutex::new(LocalNode::new(raft_uid, remote_config)));
     let raft_wrapper = LocalNodeWrapper(Arc::clone(&raft_node));
