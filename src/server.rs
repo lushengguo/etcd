@@ -7,7 +7,8 @@ use etcd::raft_protobufs::{
 use tonic::{transport::Server, Request, Response, Status};
 
 use std::env;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use etcd::raft::node::{LocalNode, RemoteNode};
 
@@ -28,10 +29,7 @@ impl EtcdRpcServer {
 impl Etcd for EtcdRpcServer {
     async fn set(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
         let req = request.into_inner();
-        let mut node = self
-            .node
-            .lock()
-            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
+        let mut node = self.node.lock().await;
         let status = node.set(req.key.clone(), req.value.clone());
         if status.code() != tonic::Code::Ok {
             return Err(status);
@@ -45,10 +43,7 @@ impl Etcd for EtcdRpcServer {
 
     async fn get(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
         let req = request.into_inner();
-        let mut node = self
-            .node
-            .lock()
-            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
+        let mut node = self.node.lock().await;
         let value = node.get(req.key.clone())?;
         let reply = EtcdResponse {
             ok: true,
@@ -60,10 +55,7 @@ impl Etcd for EtcdRpcServer {
 
     async fn del(&self, request: Request<EtcdRequest>) -> Result<Response<EtcdResponse>, Status> {
         let req = request.into_inner();
-        let mut node = self
-            .node
-            .lock()
-            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
+        let mut node = self.node.lock().await;
         let status = node.del(req.key.clone());
         if status.code() != tonic::Code::Ok {
             return Err(status);
@@ -84,9 +76,7 @@ impl Raft for LocalNodeWrapper {
         &self,
         request: Request<AppendEntriesRequest>,
     ) -> Result<Response<AppendEntriesResponse>, Status> {
-        let mut raft_node = self.0
-            .lock()
-            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
+        let mut raft_node = self.0.lock().await;
         raft_node.append_entries_impl(request)
     }
 
@@ -94,9 +84,7 @@ impl Raft for LocalNodeWrapper {
         &self,
         request: Request<RequestVoteRequest>,
     ) -> Result<Response<RequestVoteResponse>, Status> {
-        let mut raft_node = self.0
-            .lock()
-            .map_err(|e| Status::internal(format!("Mutex lock error: {}", e)))?;
+        let mut raft_node = self.0.lock().await;
         raft_node.request_vote_impl(request)
     }
 }
@@ -136,6 +124,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let raft_server = Server::builder()
         .add_service(RaftServer::new(raft_wrapper))
         .serve(raft_listen_address);
+
+    tokio::spawn(async move {
+        let mut mutable_node = raft_node.lock().await;
+        mutable_node.periodic_check_election_timeout().await;
+    });
 
     tokio::try_join!(etcd_server, raft_server)?;
 

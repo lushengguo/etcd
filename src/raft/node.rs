@@ -2,10 +2,12 @@ use crate::raft_protobufs::raft_client::RaftClient;
 use crate::raft_protobufs::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use tonic::{transport::Channel, Request, Response, Status};
-
+use rand::Rng;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::time::sleep;
+use tonic::{transport::Channel, Request, Response, Status};
 
 use super::command::Command;
 use super::log::LogEntry;
@@ -19,14 +21,16 @@ pub struct RemoteNode {
 #[derive(Debug)]
 pub struct LocalNode {
     data: HashMap<String, String>, // aka raft's state machine
-    rpc_clients: HashMap<u64, RaftClient<Channel>>,
+    client_to_cluster: HashMap<u64, RaftClient<Channel>>,
+    last_heartbeat: u64,
+    election_timeout: u64,
 
     node_uid: u64,
     state: NodeState,
 
     // persistent state
-    current_term: u64, /* latest term server has seen(initialized to 0 on first boot, increases
-                        * monotonically) */
+    term: u64, /* latest term server has seen(initialized to 0 on first boot, increases
+                * monotonically) */
     voted_for: Option<u64>, // candidateId that received vote in current term (or null if none)
     log: Vec<LogEntry>,     /* log entries; each entry contains command for state machine, and
                              * term when entry was received by
@@ -47,6 +51,14 @@ pub struct LocalNode {
                                      * replicated
                                      * on server (initialized to 0, increases
                                      * monotonically) */
+}
+
+fn current_time_millis() -> u64 {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    since_the_epoch.as_millis() as u64
 }
 
 // Rules for all servers:
@@ -90,10 +102,12 @@ impl LocalNode {
     pub fn new(id: u64, other_nodes: Vec<RemoteNode>) -> Self {
         LocalNode {
             data: HashMap::new(),
-            rpc_clients: HashMap::new(),
+            client_to_cluster: HashMap::new(),
+            last_heartbeat: current_time_millis(),
+            election_timeout: Self::random_election_timeout(),
             node_uid: 0,
             state: NodeState::Follower,
-            current_term: 0,
+            term: 0,
             voted_for: None,
             log: vec![],
             commit_index: 0,
@@ -138,9 +152,9 @@ impl LocalNode {
         let req = request.into_inner();
 
         // Step 1: check term
-        if req.term < self.current_term {
+        if req.term < self.term {
             return Ok(Response::new(AppendEntriesResponse {
-                term: self.current_term,
+                term: self.term,
                 success: false,
             }));
         }
@@ -150,13 +164,13 @@ impl LocalNode {
             if let Some(prev_log_entry) = self.log.get((req.prev_log_index - 1) as usize) {
                 if prev_log_entry.term != req.prev_log_term {
                     return Ok(Response::new(AppendEntriesResponse {
-                        term: self.current_term,
+                        term: self.term,
                         success: false,
                     }));
                 }
             } else {
                 return Ok(Response::new(AppendEntriesResponse {
-                    term: self.current_term,
+                    term: self.term,
                     success: false,
                 }));
             }
@@ -185,11 +199,12 @@ impl LocalNode {
             self.commit_index = std::cmp::min(req.leader_commit, self.log.len() as u64);
         }
 
+        // this is hard to do standalone, it should be done with step 3
         // self.apply_log_entries();
 
         // Step 5: return response
         Ok(Response::new(AppendEntriesResponse {
-            term: self.current_term,
+            term: self.term,
             success: true,
         }))
     }
@@ -205,23 +220,83 @@ impl LocalNode {
         // 2. If votedFor is null or candidateId, and candidate’s log is at least as
         //    up-to-date as receiver’s log, grant vote (§5.2, §5.4)
         let peer_term = request.get_ref().term;
-        if peer_term >= self.current_term {
-            self.current_term = peer_term;
+        if peer_term >= self.term {
+            self.term = peer_term;
             if request.get_ref().last_log_term > self.log.last().unwrap().term
                 || (request.get_ref().last_log_term >= self.log.last().unwrap().term
                     && request.get_ref().last_log_index >= self.log.len() as u64)
             {
                 self.voted_for = Some(request.get_ref().candidate_id);
                 return Ok(Response::new(RequestVoteResponse {
-                    term: self.current_term,
+                    term: self.term,
                     vote_granted: true,
                 }));
             }
         }
 
         return Ok(Response::new(RequestVoteResponse {
-            term: self.current_term,
+            term: self.term,
             vote_granted: false,
         }));
+    }
+
+    pub async fn periodic_check_election_timeout(&mut self) {
+        loop {
+            sleep(tokio::time::Duration::from_millis(self.election_timeout)).await;
+            if current_time_millis() - self.last_heartbeat >= self.election_timeout {
+                self.start_election().await;
+            }
+        }
+    }
+
+    async fn start_election(&mut self) {
+        self.term += 1;
+        self.voted_for = Some(self.node_uid);
+        let request = RequestVoteRequest {
+            term: self.term,
+            candidate_id: self.node_uid,
+            last_log_index: self.log.len() as u64,
+            last_log_term: if self.log.is_empty() {
+                0
+            } else {
+                self.log.last().unwrap().term
+            },
+        };
+
+        let responses = self.send_request_vote(request).await;
+
+        let mut votes = 1;
+        for response in responses {
+            if response.vote_granted {
+                votes += 1;
+            }
+        }
+
+        let cluster_size = self.client_to_cluster.len() as u64;
+        if votes > cluster_size / 2 {
+            self.become_leader();
+        } else {
+            self.election_timeout = Self::random_election_timeout();
+        }
+    }
+
+    async fn send_request_vote(&mut self, request: RequestVoteRequest) -> Vec<RequestVoteResponse> {
+        let mut responses = vec![];
+        for (_, client) in self.client_to_cluster.iter_mut() {
+            let response = client
+                .request_vote(request.clone())
+                .await
+                .unwrap()
+                .into_inner();
+            responses.push(response);
+        }
+        responses
+    }
+
+    async fn become_leader(&mut self) {}
+
+    fn random_election_timeout() -> u64 {
+        let mut rng = rand::thread_rng();
+        rng.gen_range(150..300)
     }
 }
