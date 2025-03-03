@@ -1,5 +1,4 @@
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_build::compile_protos("proto/db_op.proto")?;
-    tonic_build::compile_protos("proto/raft.proto")?;
-    Ok(())
+fn main() {
+    // 不再需要编译 protobuf
+    println!("cargo:rerun-if-changed=src");
 }

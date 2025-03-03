@@ -5,8 +5,6 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "1.4"
-tonic = "0.12.3"
-prost = "0.13"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -14,9 +12,10 @@ rand = "0.8"
 log = "0.4"
 env_logger = "0.9"
 chrono = "0.4"
-
-[build-dependencies]
-tonic-build = "0.12.3"
+jsonrpc-core = "18.0"
+jsonrpc-http-server = "18.0"
+jsonrpc-derive = "18.0"
+jsonrpc-core-client = { version = "18.0", features = ["http"] }
 
 [[bin]]
 name = "server"
