@@ -6,11 +6,11 @@ pub async fn register_service(
     service_name: &str,
     service_info: &str,
 ) -> Result<LeaseId, EtcdError> {
-    // Create a lease for the service
+    
     let lease = client.lease().grant(LeaseGrantRequest::new(10)).await?;
     let lease_id = lease.id();
 
-    // Register the service with the lease
+    
     let key = format!("/services/{}/info", service_name);
     let put_req = PutRequest::new(key, service_info).with_lease(lease_id);
     client.kv().put(put_req).await?;

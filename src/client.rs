@@ -1,8 +1,8 @@
 use jsonrpc_core_client::transports::http;
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 
-// 导入 rpc 模块中的 EtcdRpc trait
 use etcd::etcd_rpc::{EtcdRpc, KeyValue};
 
 #[jsonrpc_derive::rpc(client)]
@@ -51,17 +51,14 @@ impl Client {
 async fn main() -> Result<(), Box<dyn Error>> {
     let client = Client::connect("127.0.0.1:2379").await?;
 
-    // 示例：设置键值对
     let response = client.set("test_key", "test_value").await?;
-    println!("Set response: {:?}", response);
+    info!("Set response: {:?}", response);
 
-    // 示例：获取值
     let response = client.get("test_key").await?;
-    println!("Get response: {:?}", response);
+    info!("Get response: {:?}", response);
 
-    // 示例：删除键值对
     let response = client.delete("test_key").await?;
-    println!("Delete response: {:?}", response);
+    info!("Delete response: {:?}", response);
 
     Ok(())
 }

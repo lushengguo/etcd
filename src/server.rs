@@ -2,15 +2,15 @@ use jsonrpc_http_server::{ServerBuilder, DomainsValidation};
 use jsonrpc_core::IoHandler;
 use std::net::SocketAddr;
 
-// 导入 rpc 模块
+
 use etcd::etcd_rpc::{EtcdRpc, EtcdRpcImpl};
 use log::info;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 初始化日志
+    
     env_logger::init();
     
-    // 获取地址参数
+    
     let args: Vec<String> = std::env::args().collect();
     let addr: SocketAddr = if args.len() > 1 {
         args[1].parse()?

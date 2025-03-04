@@ -11,8 +11,8 @@ pub struct Operation {
 }
 
 impl Operation {
-    // raw_data format should be "command key value"
-    // key value should be \w+ in regex
+    
+    
     pub fn new(raw_data: &Vec<u8>) -> Result<Operation, String> {
         let data = String::from_utf8(raw_data.to_vec()).unwrap();
         if data.matches(' ').count() != 2 {
