@@ -1,7 +1,9 @@
+use env_logger::Builder;
 use jsonrpc_core_client::transports::http;
 use log::info;
-use serde::{Deserialize, Serialize};
+use std::env;
 use std::error::Error;
+use std::io::Write;
 
 use etcd::etcd_rpc::{EtcdRpc, KeyValue};
 
@@ -49,6 +51,19 @@ impl Client {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    Builder::from_env("RUST_LOG")
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "[{} {}:{}] - {}",
+                record.level(),
+                record.file().unwrap_or("unknown"),
+                record.line().unwrap_or(0),
+                record.args()
+            )
+        })
+        .init();
+
     let client = Client::connect("127.0.0.1:2379").await?;
 
     let response = client.set("test_key", "test_value").await?;

@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use log::info;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use jsonrpc_core::Result as RpcResult;
-use jsonrpc_core_client::TypedClient;
-use jsonrpc_core_client::transports::http;
 
 
 use crate::raft::rpc::{
