@@ -40,22 +40,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             _ => {
-                println!("未知的测试场景: {}", args[1]);
-                println!("可用的测试场景: election, leader_failure, network_partition, log_replication, membership_change, log_conflict, follower_crash, multiple_elections, safety, high_load, random_failures, all");
+                println!("Unknown test scenario: {}", args[1]);
+                println!("Available test scenarios: election, leader_failure, network_partition, log_replication, membership_change, log_conflict, follower_crash, multiple_elections, safety, high_load, random_failures, all");
                 return Ok(());
             }
         }
     } else {
-        println!("使用方法: cargo run --bin raft_test [测试场景]");
-        println!("可用的测试场景: election, leader_failure, network_partition, log_replication, membership_change, log_conflict, follower_crash, multiple_elections, safety, high_load, random_failures, all");
+        println!("Usage: cargo run --bin raft_test [test_scenario]");
+        println!("Available test scenarios: election, leader_failure, network_partition, log_replication, membership_change, log_conflict, follower_crash, multiple_elections, safety, high_load, random_failures, all");
         return Ok(());
     };
 
-    info!("开始运行测试场景...");
+    info!("Starting test scenario...");
     if run_test_scenario(scenario).await {
-        info!("测试成功！");
+        info!("Test successful!");
     } else {
-        error!("测试失败！");
+        error!("Test failed!");
     }
 
     Ok(())
@@ -63,17 +63,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_all_tests() -> Result<(), Box<dyn std::error::Error>> {
     let scenarios = vec![
-        (TestScenario::BasicElection, "基本领导选举"),
-        (TestScenario::LeaderFailure, "领导者故障"),
-        (TestScenario::NetworkPartition, "网络分区"),
-        (TestScenario::LogReplication, "日志复制一致性"),
-        (TestScenario::LogConflictResolution, "日志冲突解决"),
-        (TestScenario::FollowerCrashRecovery, "跟随者崩溃恢复"),
-        (TestScenario::MultipleElections, "多轮选举"),
-        (TestScenario::SafetyTest, "安全性测试"),
-        (TestScenario::HighLoadTest, "高负载测试"),
-        (TestScenario::RandomFailureTest, "随机故障测试"),
-        (TestScenario::MembershipChange, "集群成员变更"),
+        (TestScenario::BasicElection, "Basic Leader Election"),
+        (TestScenario::LeaderFailure, "Leader Failure"),
+        (TestScenario::NetworkPartition, "Network Partition"),
+        (TestScenario::LogReplication, "Log Replication Consistency"),
+        (TestScenario::LogConflictResolution, "Log Conflict Resolution"),
+        (TestScenario::FollowerCrashRecovery, "Follower Crash Recovery"),
+        (TestScenario::MultipleElections, "Multiple Elections"),
+        (TestScenario::SafetyTest, "Safety Test"),
+        (TestScenario::HighLoadTest, "High Load Test"),
+        (TestScenario::RandomFailureTest, "Random Failure Test"),
+        (TestScenario::MembershipChange, "Membership Change"),
     ];
 
     let mut success_count = 0;
@@ -81,14 +81,14 @@ async fn run_all_tests() -> Result<(), Box<dyn std::error::Error>> {
 
     for (scenario, name) in scenarios {
         info!("===================================================");
-        info!("开始测试: {}", name);
+        info!("Starting test: {}", name);
         info!("===================================================");
 
         if run_test_scenario(scenario).await {
-            info!("√ 测试 {} 成功", name);
+            info!("√ Test {} successful", name);
             success_count += 1;
         } else {
-            error!("× 测试 {} 失败", name);
+            error!("× Test {} failed", name);
             failure_count += 1;
         }
 
@@ -96,10 +96,10 @@ async fn run_all_tests() -> Result<(), Box<dyn std::error::Error>> {
         info!("");
     }
 
-    info!("测试结果汇总:");
-    info!("成功: {}", success_count);
-    info!("失败: {}", failure_count);
-    info!("总计: {}", success_count + failure_count);
+    info!("Test results summary:");
+    info!("Success: {}", success_count);
+    info!("Failures: {}", failure_count);
+    info!("Total: {}", success_count + failure_count);
 
     Ok(())
 }

@@ -1,36 +1,35 @@
 #!/bin/bash
 
-# 确保日志目录存在
-mkdir -p log
+# Ensure log directory exists
+mkdir -p logs
 
-# 终止可能已经运行的服务器进程
-pkill -f "server.*2379" || true
-pkill -f "server.*2380" || true
+# Terminate any potentially running server processes
+pkill -f "cargo run --bin server"
 
-# 等待进程完全终止
+# Wait for processes to fully terminate
 sleep 1
 
-# 启动两个服务器节点
-echo "启动节点1 (127.0.0.1:2379)..."
-cargo run --bin server -- 127.0.0.1:2379 raft_configuration.json 1 > log/node1.log 2>&1 &
+# Start two server nodes
+echo "Starting node1 (127.0.0.1:2379)..."
+RUST_LOG=info cargo run --bin server -- --node-id 1 --etcd-port 2379 --raft-port 10001 --cluster-conf "1=127.0.0.1:10001,2=127.0.0.1:10002" > logs/node1.log 2>&1 &
 NODE1_PID=$!
 
-echo "启动节点2 (127.0.0.1:2380)..."
-cargo run --bin server -- 127.0.0.1:2380 raft_configuration.json 2 > log/node2.log 2>&1 &
+echo "Starting node2 (127.0.0.1:2380)..."
+RUST_LOG=info cargo run --bin server -- --node-id 2 --etcd-port 2380 --raft-port 10002 --cluster-conf "1=127.0.0.1:10001,2=127.0.0.1:10002" > logs/node2.log 2>&1 &
 NODE2_PID=$!
 
-# 等待服务器启动
-echo "等待服务器启动..."
+# Wait for servers to start
+echo "Waiting for servers to start..."
 sleep 3
 
-echo "服务器已启动，PID: $NODE1_PID, $NODE2_PID"
-echo "运行测试..."
+echo "Servers started, PID: $NODE1_PID, $NODE2_PID"
+echo "Running tests..."
 
-# 运行测试
-cargo test -- --nocapture
+# Run tests
+cargo run --bin client -- --addr 127.0.0.1:2379
 
-# 测试完成后终止服务器
-echo "测试完成，终止服务器..."
+# Terminate servers after testing
+echo "Tests completed, terminating servers..."
 kill $NODE1_PID $NODE2_PID
 
-echo "完成！" 
+echo "Done!" 

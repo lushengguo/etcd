@@ -64,13 +64,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut client = Client::connect("127.0.0.1:2379").await?;
 
     let success = client.set("test_key", "test_value").await?;
-    info!("设置键值对: {}", success);
+    info!("Set key-value pair: {}", success);
 
     let value = client.get("test_key").await?;
-    info!("获取值: {}", value);
+    info!("Get value: {}", value);
 
     let success = client.delete("test_key").await?;
-    info!("删除键值对: {}", success);
+    info!("Delete key-value pair: {}", success);
 
     Ok(())
 }

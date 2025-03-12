@@ -38,7 +38,7 @@ impl EtcdService for EtcdRpcImpl {
         let mut node_guard = self.node.lock().await;
         match node_guard.set(key, value).await {
             Ok(_) => Ok(Response::new(SetResponse { success: true })),
-            Err(e) => Err(Status::internal(format!("内部错误: {:?}", e))),
+            Err(e) => Err(Status::internal(format!("Internal error: {:?}", e))),
         }
     }
 
@@ -49,7 +49,7 @@ impl EtcdService for EtcdRpcImpl {
         let node_guard = self.node.lock().await;
         match node_guard.get(key).await {
             Ok(value) => Ok(Response::new(GetResponse { value })),
-            Err(_) => Err(Status::not_found("键不存在")),
+            Err(_) => Err(Status::not_found("Key does not exist")),
         }
     }
 
@@ -63,7 +63,7 @@ impl EtcdService for EtcdRpcImpl {
         let mut node_guard = self.node.lock().await;
         match node_guard.delete(key).await {
             Ok(_) => Ok(Response::new(DeleteResponse { success: true })),
-            Err(e) => Err(Status::internal(format!("内部错误: {:?}", e))),
+            Err(e) => Err(Status::internal(format!("Internal error: {:?}", e))),
         }
     }
 }

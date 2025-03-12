@@ -37,8 +37,8 @@ pub struct LocalNode {
     pub last_applied: u64,
     pub next_index: HashMap<u64, u64>,
     pub match_index: HashMap<u64, u64>,
-
-    pub client_to_cluster: HashMap<u64, String>,
+    
+    pub client_to_cluster: HashMap<u64, String>, 
     pub last_heartbeat: SystemTime,
     pub election_timeout: u64,
     pub heartbeat_interval: u64,
@@ -78,20 +78,20 @@ impl LocalNode {
         }
         Ok(())
     }
-
+    
     pub async fn set(&mut self, key: String, value: String) -> RpcResult<()> {
         if self.state != NodeState::Leader {
             return Err(Status::invalid_argument("Invalid state"));
         }
-
+        
         let log_entry = LogEntry {
             term: self.current_term,
             index: self.log.len() as u64 + 1,
             command: format!("SET {} {}", key, value),
         };
-
+        
         self.log.push(log_entry.clone());
-
+        
         if self.replicate_log().await {
             self.kv_store.insert(key, value);
             Ok(())
@@ -99,27 +99,27 @@ impl LocalNode {
             Err(Status::internal("Failed to replicate log"))
         }
     }
-
+    
     pub async fn get(&self, key: String) -> RpcResult<String> {
         match self.kv_store.get(&key) {
             Some(value) => Ok(value.clone()),
             None => Err(Status::not_found("Key not found")),
         }
     }
-
+    
     pub async fn delete(&mut self, key: String) -> RpcResult<()> {
         if self.state != NodeState::Leader {
             return Err(Status::invalid_argument("Not a leader"));
         }
-
+        
         let log_entry = LogEntry {
             term: self.current_term,
             index: self.log.len() as u64 + 1,
             command: format!("DEL {}", key),
         };
-
+        
         self.log.push(log_entry.clone());
-
+        
         if self.replicate_log().await {
             self.kv_store.remove(&key);
             Ok(())
@@ -147,7 +147,10 @@ impl LocalNode {
                     }
                 }
                 Err(e) => {
-                    info!("心跳发送失败到节点 {}: {:?}", node_uid, e);
+                    info!(
+                        "Failed to send heartbeat to node {}: {:?}",
+                        node_uid, e
+                    );
                 }
             }
         }
@@ -280,7 +283,10 @@ impl LocalNode {
                         }
                     }
                     Err(e) => {
-                        info!("复制日志失败到节点 {}: {:?}", node_uid, e);
+                        info!(
+                            "Failed to replicate log to node {}: {:?}",
+                            node_uid, e
+                        );
                     }
                 }
             } else {
@@ -305,9 +311,8 @@ impl LocalNode {
 
     pub async fn start_election(&mut self) -> bool {
         info!(
-            "节点 {} 开始选举，任期 {}",
-            self.node_uid,
-            self.current_term + 1
+            "Node {} starting election, term {}",
+            self.node_uid, self.current_term
         );
 
         self.state = NodeState::Candidate;
@@ -332,7 +337,10 @@ impl LocalNode {
                     }
                 }
                 Err(e) => {
-                    info!("向节点 {} 发送投票请求失败: {:?}", node_uid, e);
+                    info!(
+                        "Failed to send vote request to node {}: {:?}",
+                        node_uid, e
+                    );
                 }
             }
 
@@ -346,7 +354,7 @@ impl LocalNode {
 
         if won_election {
             info!(
-                "节点 {} 赢得选举，任期 {}",
+                "Node {} won election, term {}",
                 self.node_uid, self.current_term
             );
 
@@ -379,7 +387,7 @@ impl LocalNode {
             }
         }
     }
-
+    
     pub async fn handle_append_entries(
         &mut self,
         req: AppendEntriesRequest,
@@ -404,7 +412,7 @@ impl LocalNode {
         if req.leader_commit > self.commit_index {
             self.commit_index = req.leader_commit.min(self.log.len() as u64);
         }
-
+        
         AppendEntriesResponse {
             term: self.current_term,
             success: true,
@@ -441,7 +449,7 @@ impl LocalNode {
                 vote_granted: true,
             };
         }
-
+        
         RequestVoteResponse {
             term: self.current_term,
             vote_granted: false,
@@ -463,24 +471,24 @@ impl RaftRpc for RaftRpcImpl {
     fn append_entries(&self, _req: AppendEntriesRequest) -> RpcResult<AppendEntriesResponse> {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let node = self.node.clone();
-
+        
         let response = rt.block_on(async move {
             let mut node = node.lock().await;
             node.handle_append_entries(_req).await
         });
-
+        
         Ok(response)
     }
 
     fn request_vote(&self, _req: RequestVoteRequest) -> RpcResult<RequestVoteResponse> {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let node = self.node.clone();
-
+        
         let response = rt.block_on(async move {
             let mut node = node.lock().await;
             node.handle_request_vote(_req).await
         });
-
+        
         Ok(response)
     }
 }

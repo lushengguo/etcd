@@ -49,10 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         format!("{}={}", node_id, raft_addr)
     };
 
-    info!("启动节点 ID: {}", node_id);
-    info!("启动 etcd 服务在地址 {}", etcd_addr);
-    info!("启动 raft 服务在地址 {}", raft_addr);
-    info!("集群配置: {}", cluster_conf);
+    info!("Starting node ID: {}", node_id);
+    info!("Starting etcd service at address {}", etcd_addr);
+    info!("Starting raft service at address {}", raft_addr);
+    info!("Cluster configuration: {}", cluster_conf);
 
     let node = Arc::new(Mutex::new(LocalNode::new(node_id)));
 
@@ -99,13 +99,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::select! {
         _ = etcd_server => {
-            info!("etcd 服务已停止");
+            info!("etcd service has stopped");
         }
         _ = raft_server => {
-            info!("raft 服务已停止");
+            info!("raft service has stopped");
         }
         _ = heartbeat_task => {
-            info!("心跳检查任务已停止");
+            info!("heartbeat check task has stopped");
         }
     }
 
