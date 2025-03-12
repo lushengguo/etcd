@@ -1,6 +1,6 @@
+use crate::raft::node::RpcResult;
 use serde::{Deserialize, Serialize};
 use tonic::{Request, Response, Status};
-use crate::raft::node::RpcResult;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LogEntry {
@@ -39,8 +39,7 @@ pub struct RequestVoteResponse {
     pub vote_granted: bool,
 }
 
-// 定义 Raft RPC 服务特质
 pub trait RaftRpc {
     fn append_entries(&self, req: AppendEntriesRequest) -> RpcResult<AppendEntriesResponse>;
     fn request_vote(&self, req: RequestVoteRequest) -> RpcResult<RequestVoteResponse>;
-} 
+}

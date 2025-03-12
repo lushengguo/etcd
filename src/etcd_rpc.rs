@@ -2,18 +2,18 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
-use crate::raft::node::LocalNode;
 use crate::proto::etcd_service_server::{EtcdService, EtcdServiceServer};
-use crate::proto::{SetRequest, SetResponse, GetRequest, GetResponse, DeleteRequest, DeleteResponse};
+use crate::proto::{
+    DeleteRequest, DeleteResponse, GetRequest, GetResponse, SetRequest, SetResponse,
+};
+use crate::raft::node::LocalNode;
 
-// 键值对结构（用于与现有代码兼容）
 #[derive(Clone, Debug)]
 pub struct KeyValue {
     pub key: String,
     pub value: String,
 }
 
-// gRPC 服务实现
 pub struct EtcdRpcImpl {
     node: Arc<Mutex<LocalNode>>,
 }
@@ -23,7 +23,6 @@ impl EtcdRpcImpl {
         Self { node }
     }
 
-    // 返回 tonic 服务器
     pub fn server(self) -> EtcdServiceServer<Self> {
         EtcdServiceServer::new(self)
     }
@@ -35,7 +34,7 @@ impl EtcdService for EtcdRpcImpl {
         let req = request.into_inner();
         let key = req.key;
         let value = req.value;
-        
+
         let mut node_guard = self.node.lock().await;
         match node_guard.set(key, value).await {
             Ok(_) => Ok(Response::new(SetResponse { success: true })),
@@ -46,7 +45,7 @@ impl EtcdService for EtcdRpcImpl {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         let req = request.into_inner();
         let key = req.key;
-        
+
         let node_guard = self.node.lock().await;
         match node_guard.get(key).await {
             Ok(value) => Ok(Response::new(GetResponse { value })),
@@ -54,14 +53,17 @@ impl EtcdService for EtcdRpcImpl {
         }
     }
 
-    async fn delete(&self, request: Request<DeleteRequest>) -> Result<Response<DeleteResponse>, Status> {
+    async fn delete(
+        &self,
+        request: Request<DeleteRequest>,
+    ) -> Result<Response<DeleteResponse>, Status> {
         let req = request.into_inner();
         let key = req.key;
-        
+
         let mut node_guard = self.node.lock().await;
         match node_guard.delete(key).await {
             Ok(_) => Ok(Response::new(DeleteResponse { success: true })),
             Err(e) => Err(Status::internal(format!("内部错误: {:?}", e))),
         }
     }
-} 
+}
