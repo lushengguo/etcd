@@ -4,8 +4,10 @@ use std::time::SystemTime;
 use log::info;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use jsonrpc_core::Result as RpcResult;
+use tonic::Status;
 
+// 定义自己的 RpcResult 类型，替代原来的 jsonrpc_core::Result
+pub type RpcResult<T> = Result<T, Status>;
 
 use crate::raft::rpc::{
     RaftRpc, AppendEntriesRequest, AppendEntriesResponse,
@@ -41,6 +43,7 @@ pub struct LocalNode {
     
     pub client_to_cluster: HashMap<u64, String>, 
     pub last_heartbeat: SystemTime,
+    pub kv_store: HashMap<String, String>,
 }
 
 impl LocalNode {
@@ -57,6 +60,7 @@ impl LocalNode {
             match_index: HashMap::new(),
             client_to_cluster: HashMap::new(),
             last_heartbeat: SystemTime::now(),
+            kv_store: HashMap::new(),
         }
     }
 
@@ -74,7 +78,7 @@ impl LocalNode {
     pub async fn set(&mut self, key: String, value: String) -> RpcResult<()> {
         
         if self.state != NodeState::Leader {
-            return Err(jsonrpc_core::Error::invalid_request());
+            return Err(Status::invalid_argument("Invalid state"));
         }
 
         
@@ -88,15 +92,47 @@ impl LocalNode {
         self.log.push(log_entry.clone());
 
         
-        self.replicate_log().await;
-
-        Ok(())
+        if self.replicate_log().await {
+            self.kv_store.insert(key, value);
+            Ok(())
+        } else {
+            Err(Status::internal("Failed to replicate log"))
+        }
     }
 
     
     pub async fn get(&self, key: String) -> RpcResult<String> {
         
-        Ok(String::new())
+        match self.kv_store.get(&key) {
+            Some(value) => Ok(value.clone()),
+            None => Err(Status::not_found("Key not found")),
+        }
+    }
+
+    
+    pub async fn delete(&mut self, key: String) -> RpcResult<()> {
+        
+        if self.state != NodeState::Leader {
+            return Err(Status::invalid_argument("Not a leader"));
+        }
+
+        
+        let log_entry = LogEntry {
+            term: self.current_term,
+            index: self.log.len() as u64 + 1,
+            command: format!("DEL {}", key),
+        };
+
+        
+        self.log.push(log_entry.clone());
+
+        
+        if self.replicate_log().await {
+            self.kv_store.remove(&key);
+            Ok(())
+        } else {
+            Err(Status::internal("Failed to replicate log"))
+        }
     }
 
     

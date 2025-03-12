@@ -1,68 +1,67 @@
-use jsonrpc_core::{Error, Result};
-use jsonrpc_derive::rpc;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tonic::{Request, Response, Status};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+use crate::raft::node::LocalNode;
+use crate::proto::etcd_service_server::{EtcdService, EtcdServiceServer};
+use crate::proto::{SetRequest, SetResponse, GetRequest, GetResponse, DeleteRequest, DeleteResponse};
+
+// 键值对结构（用于与现有代码兼容）
+#[derive(Clone, Debug)]
 pub struct KeyValue {
     pub key: String,
     pub value: String,
 }
 
-#[rpc]
-pub trait EtcdRpc {
-    #[rpc(name = "set")]
-    fn set(&self, key: String, value: String) -> Result<KeyValue>;
-
-    #[rpc(name = "get")]
-    fn get(&self, key: String) -> Result<KeyValue>;
-
-    #[rpc(name = "del")]
-    fn del(&self, key: String) -> Result<KeyValue>;
-}
-
+// gRPC 服务实现
 pub struct EtcdRpcImpl {
-    store: Arc<RwLock<HashMap<String, String>>>,
+    node: Arc<Mutex<LocalNode>>,
 }
 
 impl EtcdRpcImpl {
-    pub fn new() -> Self {
-        Self {
-            store: Arc::new(RwLock::new(HashMap::new())),
-        }
+    pub fn new(node: Arc<Mutex<LocalNode>>) -> Self {
+        Self { node }
+    }
+
+    // 返回 tonic 服务器
+    pub fn server(self) -> EtcdServiceServer<Self> {
+        EtcdServiceServer::new(self)
     }
 }
 
-impl EtcdRpc for EtcdRpcImpl {
-    fn set(&self, key: String, value: String) -> Result<KeyValue> {
-        let mut store = self.store.write().unwrap();
-        store.insert(key.clone(), value.clone());
+#[tonic::async_trait]
+impl EtcdService for EtcdRpcImpl {
+    async fn set(&self, request: Request<SetRequest>) -> Result<Response<SetResponse>, Status> {
+        let req = request.into_inner();
+        let key = req.key;
+        let value = req.value;
         
-        Ok(KeyValue { key, value })
-    }
-
-    fn get(&self, key: String) -> Result<KeyValue> {
-        let store = self.store.read().unwrap();
-        
-        match store.get(&key) {
-            Some(value) => Ok(KeyValue {
-                key,
-                value: value.clone(),
-            }),
-            None => Err(Error::invalid_params("Key not found")),
+        let mut node_guard = self.node.lock().await;
+        match node_guard.set(key, value).await {
+            Ok(_) => Ok(Response::new(SetResponse { success: true })),
+            Err(e) => Err(Status::internal(format!("内部错误: {:?}", e))),
         }
     }
 
-    fn del(&self, key: String) -> Result<KeyValue> {
-        let mut store = self.store.write().unwrap();
+    async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
+        let req = request.into_inner();
+        let key = req.key;
         
-        match store.remove(&key) {
-            Some(value) => Ok(KeyValue {
-                key,
-                value,
-            }),
-            None => Err(Error::invalid_params("Key not found")),
+        let node_guard = self.node.lock().await;
+        match node_guard.get(key).await {
+            Ok(value) => Ok(Response::new(GetResponse { value })),
+            Err(_) => Err(Status::not_found("键不存在")),
+        }
+    }
+
+    async fn delete(&self, request: Request<DeleteRequest>) -> Result<Response<DeleteResponse>, Status> {
+        let req = request.into_inner();
+        let key = req.key;
+        
+        let mut node_guard = self.node.lock().await;
+        match node_guard.delete(key).await {
+            Ok(_) => Ok(Response::new(DeleteResponse { success: true })),
+            Err(e) => Err(Status::internal(format!("内部错误: {:?}", e))),
         }
     }
 } 

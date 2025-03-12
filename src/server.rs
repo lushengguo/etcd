@@ -1,14 +1,16 @@
 use env_logger::Builder;
-use jsonrpc_core::IoHandler;
-use jsonrpc_http_server::{DomainsValidation, ServerBuilder};
-use std::env;
 use std::io::Write;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tonic::transport::Server;
 
-use etcd::etcd_rpc::{EtcdRpc, EtcdRpcImpl};
+use etcd::etcd_rpc::EtcdRpcImpl;
+use etcd::raft::node::LocalNode;
 use log::info;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Builder::from_env("RUST_LOG")
         .format(|buf, record| {
             writeln!(
@@ -31,17 +33,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("启动服务器在地址 {}", addr);
 
-    let mut io = IoHandler::default();
-    let rpc = EtcdRpcImpl::new();
-    io.extend_with(rpc.to_delegate());
+    // 创建节点
+    let node = Arc::new(Mutex::new(LocalNode::new(1)));
 
-    let server = ServerBuilder::new(io)
-        .cors(DomainsValidation::Disabled)
-        .start_http(&addr)
-        .expect("服务器启动失败");
+    // 创建 gRPC 服务
+    let etcd_service = EtcdRpcImpl::new(node);
 
-    info!("服务器已启动");
-    server.wait();
+    // 启动 gRPC 服务器
+    Server::builder()
+        .add_service(etcd_service.server())
+        .serve(addr)
+        .await?;
 
     Ok(())
 }

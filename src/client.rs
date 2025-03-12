@@ -1,51 +1,51 @@
 use env_logger::Builder;
-use jsonrpc_core_client::transports::http;
 use log::info;
-use std::env;
 use std::error::Error;
 use std::io::Write;
+use tonic::transport::Channel;
 
-use etcd::etcd_rpc::{EtcdRpc, KeyValue};
-
-#[jsonrpc_derive::rpc(client)]
-pub trait ClientEtcdRpc {
-    #[rpc(name = "set", returns = "KeyValue")]
-    fn set(&self, key: String, value: String) -> jsonrpc_core::Result<KeyValue>;
-
-    #[rpc(name = "get", returns = "KeyValue")]
-    fn get(&self, key: String) -> jsonrpc_core::Result<KeyValue>;
-
-    #[rpc(name = "del", returns = "KeyValue")]
-    fn del(&self, key: String) -> jsonrpc_core::Result<KeyValue>;
-}
+use etcd::proto::{
+    etcd_service_client::EtcdServiceClient,
+    SetRequest, GetRequest, DeleteRequest,
+};
 
 pub struct Client {
-    client: jsonrpc_core_client::RpcChannel,
+    client: EtcdServiceClient<Channel>,
 }
 
 impl Client {
     pub async fn connect(addr: &str) -> Result<Self, Box<dyn Error>> {
         let url = format!("http://{}", addr);
-        let client = http::connect(&url).await?;
+        let client = EtcdServiceClient::connect(url).await?;
         Ok(Self { client })
     }
 
-    pub async fn set(&self, key: &str, value: &str) -> Result<KeyValue, Box<dyn Error>> {
-        let client = ClientEtcdRpcClient::new(self.client.clone());
-        let response = client.set(key.to_string(), value.to_string()).await?;
-        Ok(response)
+    pub async fn set(&mut self, key: &str, value: &str) -> Result<bool, Box<dyn Error>> {
+        let request = SetRequest {
+            key: key.to_string(),
+            value: value.to_string(),
+        };
+        
+        let response = self.client.set(request).await?;
+        Ok(response.into_inner().success)
     }
 
-    pub async fn get(&self, key: &str) -> Result<KeyValue, Box<dyn Error>> {
-        let client = ClientEtcdRpcClient::new(self.client.clone());
-        let response = client.get(key.to_string()).await?;
-        Ok(response)
+    pub async fn get(&mut self, key: &str) -> Result<String, Box<dyn Error>> {
+        let request = GetRequest {
+            key: key.to_string(),
+        };
+        
+        let response = self.client.get(request).await?;
+        Ok(response.into_inner().value)
     }
 
-    pub async fn delete(&self, key: &str) -> Result<KeyValue, Box<dyn Error>> {
-        let client = ClientEtcdRpcClient::new(self.client.clone());
-        let response = client.del(key.to_string()).await?;
-        Ok(response)
+    pub async fn delete(&mut self, key: &str) -> Result<bool, Box<dyn Error>> {
+        let request = DeleteRequest {
+            key: key.to_string(),
+        };
+        
+        let response = self.client.delete(request).await?;
+        Ok(response.into_inner().success)
     }
 }
 
@@ -64,16 +64,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .init();
 
-    let client = Client::connect("127.0.0.1:2379").await?;
+    // 连接到服务器
+    let mut client = Client::connect("127.0.0.1:2379").await?;
 
-    let response = client.set("test_key", "test_value").await?;
-    info!("Set response: {:?}", response);
+    // 设置键值对
+    let success = client.set("test_key", "test_value").await?;
+    info!("设置键值对: {}", success);
 
-    let response = client.get("test_key").await?;
-    info!("Get response: {:?}", response);
+    // 获取值
+    let value = client.get("test_key").await?;
+    info!("获取值: {}", value);
 
-    let response = client.delete("test_key").await?;
-    info!("Delete response: {:?}", response);
+    // 删除键值对
+    let success = client.delete("test_key").await?;
+    info!("删除键值对: {}", success);
 
     Ok(())
 }

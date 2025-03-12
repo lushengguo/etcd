@@ -1,0 +1,51 @@
+syntax = "proto3";
+package etcd;
+
+// 键值对消息定义
+message KeyValue {
+  string key = 1;
+  string value = 2;
+}
+
+// 设置操作的请求
+message SetRequest {
+  string key = 1;
+  string value = 2;
+}
+
+// 设置操作的响应
+message SetResponse {
+  bool success = 1;
+}
+
+// 获取操作的请求
+message GetRequest {
+  string key = 1;
+}
+
+// 获取操作的响应
+message GetResponse {
+  string value = 1;
+}
+
+// 删除操作的请求
+message DeleteRequest {
+  string key = 1;
+}
+
+// 删除操作的响应
+message DeleteResponse {
+  bool success = 1;
+}
+
+// 定义 etcd 服务
+service EtcdService {
+  // 设置键值对
+  rpc Set(SetRequest) returns (SetResponse);
+  
+  // 获取键值
+  rpc Get(GetRequest) returns (GetResponse);
+  
+  // 删除键值对
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+} 
