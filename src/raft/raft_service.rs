@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-use log::{debug, info};
+use log::debug;
 
 use crate::raft::node::LocalNode;
 use crate::raft::rpc::{

@@ -1,6 +1,5 @@
 use crate::raft::node::RpcResult;
 use serde::{Deserialize, Serialize};
-use tonic::{Request, Response, Status};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LogEntry {

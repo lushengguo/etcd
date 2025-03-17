@@ -1,13 +1,14 @@
-use super::command::Command;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LogEntry {
     pub term: u64,
-    pub command: Option<Command>,
+    pub index: u64,
+    pub command: String,
 }
 
 impl LogEntry {
-    pub fn new(term: u64, command: Option<Command>) -> Self {
-        LogEntry { term, command }
+    pub fn new(term: u64, index: u64, command: String) -> Self {
+        LogEntry { term, index, command }
     }
 }

@@ -1,6 +1,6 @@
 use std::error::Error;
 use tonic::transport::Channel;
-use log::{debug, info};
+use log::debug;
 
 use crate::raft_proto::{
     raft_service_client::RaftServiceClient, AppendEntriesRequest, AppendEntriesResponse,

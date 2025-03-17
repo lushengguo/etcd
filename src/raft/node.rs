@@ -6,13 +6,18 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::Mutex;
 use tonic::Status;
+use std::fs;
+use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
 
-pub type RpcResult<T> = Result<T, Status>;
-
+use crate::raft::command::Command;
+use crate::raft::log::LogEntry;
 use crate::raft::rpc::{
-    AppendEntriesRequest, AppendEntriesResponse, LogEntry, RaftRpc, RequestVoteRequest,
+    AppendEntriesRequest, AppendEntriesResponse, RaftRpc, RequestVoteRequest,
     RequestVoteResponse,
 };
+
+pub type RpcResult<T> = Result<T, Status>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeState {
@@ -25,6 +30,20 @@ pub enum NodeState {
 pub struct RemoteNode {
     pub node_uid: u64,
     pub addr: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct PersistentState {
+    current_term: u64,
+    voted_for: Option<u64>,
+    log: Vec<LogEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Snapshot {
+    last_included_index: u64,
+    last_included_term: u64,
+    data: Vec<u8>,
 }
 
 pub struct LocalNode {
@@ -43,6 +62,7 @@ pub struct LocalNode {
     pub election_timeout: u64,
     pub heartbeat_interval: u64,
     pub kv_store: HashMap<String, String>,
+    pub configuration_state: Option<ConfigurationState>,
 }
 
 impl LocalNode {
@@ -64,6 +84,7 @@ impl LocalNode {
             election_timeout,
             heartbeat_interval: 50,
             kv_store: HashMap::new(),
+            configuration_state: None,
         }
     }
 
@@ -703,6 +724,172 @@ impl LocalNode {
             vote_granted: false,
         }
     }
+
+    fn get_storage_path(&self) -> PathBuf {
+        PathBuf::from(format!("raft_state_{}.json", self.node_uid))
+    }
+
+    pub fn save_state(&self) -> Result<(), Box<dyn Error>> {
+        let state = PersistentState {
+            current_term: self.current_term,
+            voted_for: self.voted_for,
+            log: self.log.clone(),
+        };
+        
+        let json = serde_json::to_string(&state)?;
+        fs::write(self.get_storage_path(), json)?;
+        Ok(())
+    }
+
+    pub fn load_state(&mut self) -> Result<(), Box<dyn Error>> {
+        let path = self.get_storage_path();
+        if path.exists() {
+            let json = fs::read_to_string(path)?;
+            let state: PersistentState = serde_json::from_str(&json)?;
+            
+            self.current_term = state.current_term;
+            self.voted_for = state.voted_for;
+            self.log = state.log;
+        }
+        Ok(())
+    }
+
+    pub async fn update_term(&mut self, new_term: u64) -> Result<(), Box<dyn Error>> {
+        if new_term > self.current_term {
+            self.current_term = new_term;
+            self.voted_for = None;
+            self.state = NodeState::Follower;
+            self.save_state()?;
+        }
+        Ok(())
+    }
+
+    pub async fn create_snapshot(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.log.is_empty() {
+            return Ok(());
+        }
+
+        let last_index = self.commit_index;
+        if last_index == 0 {
+            return Ok(());
+        }
+
+        // 序列化当前的状态机状态
+        let state_machine_data = serde_json::to_vec(&self.kv_store)?;
+        
+        let snapshot = Snapshot {
+            last_included_index: last_index,
+            last_included_term: self.log[last_index as usize].term,
+            data: state_machine_data,
+        };
+
+        // 持久化快照
+        let snapshot_path = format!("snapshot_{}.json", self.node_uid);
+        let json = serde_json::to_string(&snapshot)?;
+        fs::write(snapshot_path, json)?;
+
+        // 压缩日志
+        self.log.drain(0..=last_index as usize);
+        
+        // 更新索引
+        self.last_applied = last_index;
+        self.commit_index = last_index;
+
+        Ok(())
+    }
+
+    pub async fn install_snapshot(&mut self, snapshot: Snapshot) -> Result<(), Box<dyn Error>> {
+        if snapshot.last_included_index <= self.commit_index {
+            return Ok(());
+        }
+
+        // 恢复状态机状态
+        self.kv_store = serde_json::from_slice(&snapshot.data)?;
+
+        // 更新日志
+        self.log.clear();
+        self.log.push(LogEntry::new(
+            snapshot.last_included_term,
+            snapshot.last_included_index,
+            String::new(),
+        ));
+
+        // 更新索引
+        self.last_applied = snapshot.last_included_index;
+        self.commit_index = snapshot.last_included_index;
+
+        Ok(())
+    }
+
+    // 检查是否需要创建快照
+    pub async fn check_snapshot_needed(&mut self) -> Result<(), Box<dyn Error>> {
+        const SNAPSHOT_THRESHOLD: usize = 1000; // 可配置的阈值
+        if self.log.len() > SNAPSHOT_THRESHOLD {
+            self.create_snapshot().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn change_configuration(&mut self, new_members: HashMap<u64, String>) -> Result<(), Box<dyn Error>> {
+        // 确保是 Leader
+        if self.state != NodeState::Leader {
+            return Err("Only leader can change configuration".into());
+        }
+
+        // 创建新配置
+        let old_config = Configuration {
+            members: self.client_to_cluster.clone(),
+        };
+        let new_config = Configuration {
+            members: new_members.clone(),
+        };
+
+        // 进入 Joint Consensus 阶段
+        self.configuration_state = Some(ConfigurationState::Joint(old_config.clone(), new_config.clone()));
+
+        // 创建配置变更日志条目
+        let config_command = Command::new_config_change(old_config, new_config.clone());
+        let config_entry = LogEntry::new(
+            self.current_term,
+            self.log.len() as u64,
+            serde_json::to_string(&config_command)?,
+        );
+        self.log.push(config_entry);
+
+        // 等待日志复制
+        let log_index = (self.log.len() - 1) as u64;
+        self.replicate_log().await;
+
+        // 等待日志提交
+        while self.commit_index < log_index {
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+
+        // 切换到新配置
+        self.client_to_cluster = new_members;
+        let config_state = ConfigurationState::Stable(new_config);
+        self.configuration_state = Some(config_state);
+
+        // 更新 next_index 和 match_index
+        self.next_index.clear();
+        self.match_index.clear();
+        for &node_id in self.client_to_cluster.keys() {
+            self.next_index.insert(node_id, self.log.len() as u64);
+            self.match_index.insert(node_id, 0);
+        }
+
+        Ok(())
+    }
+
+    // 处理配置变更日志条目
+    async fn apply_config_change(&mut self, old_config: Configuration, new_config: Configuration) {
+        // 进入 Joint Consensus 阶段
+        self.configuration_state = Some(ConfigurationState::Joint(old_config, new_config.clone()));
+        
+        // 应用新配置
+        self.client_to_cluster = new_config.members.clone();
+        self.configuration_state = Some(ConfigurationState::Stable(new_config));
+    }
 }
 
 pub struct RaftRpcImpl {
@@ -739,4 +926,15 @@ impl RaftRpc for RaftRpcImpl {
         
         Ok(response)
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Configuration {
+    pub members: HashMap<u64, String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ConfigurationState {
+    Stable(Configuration),
+    Joint(Configuration, Configuration),
 }

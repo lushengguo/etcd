@@ -1,15 +1,14 @@
 use log::{debug, error, info};
 use rand;
 use rand::Rng;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::Mutex;
 use tokio::time;
 
 use crate::raft::node::{LocalNode, NodeState, RemoteNode};
-use crate::raft::rpc::LogEntry;
 
+#[derive(Clone)]
 pub struct TestClusterConfig {
     pub node_count: usize,
 
@@ -37,6 +36,7 @@ impl Default for TestClusterConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct TestCluster {
     pub nodes: Vec<Arc<Mutex<LocalNode>>>,
 
@@ -290,7 +290,7 @@ impl TestCluster {
 
     pub async fn check_single_leader(&self) -> bool {
         let mut leader_count = 0;
-        let mut leader_term = 0;
+        let mut _leader_term = 0;
 
         for i in 0..self.nodes.len() {
             if self.node_failures[i] {
@@ -300,8 +300,8 @@ impl TestCluster {
             let node = self.nodes[i].lock().await;
             if node.state == NodeState::Leader {
                 leader_count += 1;
-                leader_term = node.current_term;
-                info!("Found leader: Node {} (Term {})", i+1, leader_term);
+                _leader_term = node.current_term;
+                info!("Found leader: Node {} (Term {})", i+1, _leader_term);
             }
         }
 
@@ -311,25 +311,15 @@ impl TestCluster {
 
 pub enum TestScenario {
     BasicElection,
-
     LeaderFailure,
-
     NetworkPartition,
-
     LogReplication,
-
     MembershipChange,
-
     LogConflictResolution,
-
     FollowerCrashRecovery,
-
     MultipleElections,
-
     SafetyTest,
-
     HighLoadTest,
-
     RandomFailureTest,
 }
 
@@ -1123,7 +1113,7 @@ async fn test_safety() -> bool {
     for i in 1..=3 {
         info!("=== Safety Test Round {} ===", i);
 
-        let mut rng = rand::thread_rng();
+        let _rng = rand::thread_rng();
         let partition_size = cluster.nodes.len() / 2;
 
         let mut partition1 = Vec::new();
