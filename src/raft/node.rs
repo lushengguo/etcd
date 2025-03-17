@@ -161,36 +161,77 @@ impl LocalNode {
         );
 
         let mut success_count = 1; // Count self as success
+        let clients = self.client_to_cluster.clone();
+        let node_id = self.node_uid;
 
-        for (node_uid, addr) in self.client_to_cluster.clone() {
-            if node_uid == self.node_uid {
+        for (target_node_id, target_addr) in clients {
+            if target_node_id == node_id {
                 continue;
             }
 
+            let prev_log_index = self.next_index.get(&target_node_id).unwrap_or(&1).saturating_sub(1);
+            let prev_log_term = if prev_log_index == 0 {
+                0
+            } else if prev_log_index <= self.log.len() as u64 {
+                self.log[(prev_log_index - 1) as usize].term
+            } else {
+                debug!(
+                    "Node {} invalid prev_log_index {} for node {}, log length is {}",
+                    self.node_uid, prev_log_index, target_node_id, self.log.len()
+                );
+                continue;
+            };
+
+            let entries = if let Some(&next_idx) = self.next_index.get(&target_node_id) {
+                if next_idx <= self.log.len() as u64 {
+                    self.log[(next_idx - 1) as usize..].to_vec()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
             debug!(
-                "Node {} sending heartbeat to node {}",
-                self.node_uid, node_uid
+                "Node {} sending heartbeat to node {}: prev_log_index={}, prev_log_term={}, entries_count={}",
+                self.node_uid, target_node_id, prev_log_index, prev_log_term, entries.len()
             );
 
-            match self.send_append_entries(node_uid, addr, vec![]).await {
-                Ok(success) => {
+            // 添加超时处理
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(500),
+                self.send_append_entries(
+                    target_node_id,
+                    target_addr,
+                    prev_log_index,
+                    prev_log_term,
+                    entries,
+                )
+            ).await {
+                Ok(Ok(success)) => {
                     if success {
-                        debug!(
-                            "Node {} heartbeat to node {} succeeded",
-                            self.node_uid, node_uid
-                        );
                         success_count += 1;
+                        debug!(
+                            "Node {} received successful heartbeat response from node {}",
+                            self.node_uid, target_node_id
+                        );
                     } else {
                         debug!(
-                            "Node {} heartbeat to node {} failed (rejected)",
-                            self.node_uid, node_uid
+                            "Node {} received failed heartbeat response from node {}",
+                            self.node_uid, target_node_id
                         );
                     }
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     info!(
                         "Node {} failed to send heartbeat to node {}: {:?}",
-                        self.node_uid, node_uid, e
+                        self.node_uid, target_node_id, e
+                    );
+                }
+                Err(_) => {
+                    info!(
+                        "Node {} heartbeat to node {} timed out",
+                        self.node_uid, target_node_id
                     );
                 }
             }
@@ -198,12 +239,12 @@ impl LocalNode {
 
         let majority = (self.client_to_cluster.len() / 2) + 1;
         let result = success_count >= majority;
-        
+
         debug!(
             "Node {} heartbeat result: success_count={}/{}, majority_needed={}, success={}",
             self.node_uid, success_count, self.client_to_cluster.len(), majority, result
         );
-        
+
         result
     }
 
@@ -211,6 +252,8 @@ impl LocalNode {
         &mut self,
         target_node_id: u64,
         target_addr: String,
+        prev_log_index: u64,
+        prev_log_term: u64,
         entries: Vec<LogEntry>,
     ) -> Result<bool, Box<dyn Error>> {
         use crate::raft::raft_client::RaftClient;
@@ -230,22 +273,6 @@ impl LocalNode {
                 command: entry.command.clone(),
             })
             .collect();
-
-        let prev_log_index = if self.log.is_empty() {
-            0
-        } else {
-            self.log.len() as u64
-        };
-        let prev_log_term = if self.log.is_empty() {
-            0
-        } else {
-            self.log.last().unwrap().term
-        };
-
-        debug!(
-            "Node {} AppendEntries details: prev_log_index={}, prev_log_term={}, commit_index={}",
-            self.node_uid, prev_log_index, prev_log_term, self.commit_index
-        );
 
         let mut client = RaftClient::connect(&target_addr).await?;
         let response = client
@@ -337,59 +364,52 @@ impl LocalNode {
 
     pub async fn replicate_log(&mut self) -> bool {
         if self.state != NodeState::Leader {
-            debug!("Node {} cannot replicate log: not a leader (state: {:?})", self.node_uid, self.state);
             return false;
         }
 
-        info!(
-            "Node {} starting log replication for term {}, log length: {}",
-            self.node_uid, self.current_term, self.log.len()
-        );
-
-        let mut success_count = 1; // 自己算一个成功
-
+        let mut success_count = 1; // Count self as success
         let clients = self.client_to_cluster.clone();
         let node_id = self.node_uid;
-        
+
         for (node_uid, addr) in clients {
             if node_uid == node_id {
                 continue;
             }
 
-            let next_idx = self.next_index.get(&node_uid).cloned().unwrap_or(1);
-            
-            debug!(
-                "Node {} replicating to node {}: next_index={}, log_length={}",
-                self.node_uid, node_uid, next_idx, self.log.len()
-            );
-            
+            let next_idx = *self.next_index.get(&node_uid).unwrap_or(&1);
             if next_idx <= self.log.len() as u64 {
                 let entries_to_send = self.log[(next_idx - 1) as usize..].to_vec();
-                
+                let entries_len = entries_to_send.len() as u64;
+                let prev_log_index = next_idx - 1;
+                let prev_log_term = if prev_log_index == 0 {
+                    0
+                } else {
+                    self.log[(prev_log_index - 1) as usize].term
+                };
+
                 debug!(
-                    "Node {} sending {} entries to node {} (from index {})",
-                    self.node_uid, entries_to_send.len(), node_uid, next_idx
+                    "Node {} replicating {} entries to node {} (next_index={})",
+                    self.node_uid,
+                    entries_len,
+                    node_uid,
+                    next_idx
                 );
 
                 match self
-                    .send_append_entries(node_uid, addr, entries_to_send)
+                    .send_append_entries(node_uid, addr, prev_log_index, prev_log_term, entries_to_send)
                     .await
                 {
                     Ok(success) => {
                         if success {
-                            let match_idx = self.log.len() as u64;
-                            let old_next_idx = self.next_index.get(&node_uid).cloned().unwrap_or(0);
-                            let old_match_idx = self.match_index.get(&node_uid).cloned().unwrap_or(0);
-                            
-                            self.next_index.insert(node_uid, match_idx + 1);
-                            self.match_index.insert(node_uid, match_idx);
+                            success_count += 1;
+                            let new_next_idx = next_idx + entries_len;
+                            self.next_index.insert(node_uid, new_next_idx);
+                            self.match_index.insert(node_uid, new_next_idx - 1);
                             
                             debug!(
-                                "Node {} successfully replicated to node {}: next_index: {} -> {}, match_index: {} -> {}",
-                                self.node_uid, node_uid, old_next_idx, match_idx + 1, old_match_idx, match_idx
+                                "Node {} successfully replicated to node {}: next_index {} -> {}",
+                                self.node_uid, node_uid, next_idx, new_next_idx
                             );
-                            
-                            success_count += 1;
                         } else {
                             let old_next_idx = next_idx;
                             let new_next_idx = next_idx.saturating_sub(1);
@@ -479,8 +499,11 @@ impl LocalNode {
                 self.node_uid, node_uid, self.current_term
             );
 
-            match self.send_request_vote(node_uid, addr).await {
-                Ok(granted) => {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_millis(500),
+                self.send_request_vote(node_uid, addr)
+            ).await {
+                Ok(Ok(granted)) => {
                     if granted {
                         votes_received += 1;
                         debug!(
@@ -494,10 +517,16 @@ impl LocalNode {
                         );
                     }
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     info!(
                         "Node {} failed to send vote request to node {}: {:?}",
                         self.node_uid, node_uid, e
+                    );
+                }
+                Err(_) => {
+                    info!(
+                        "Node {} vote request to node {} timed out",
+                        self.node_uid, node_uid
                     );
                 }
             }
@@ -512,10 +541,7 @@ impl LocalNode {
         }
 
         let majority = (total_nodes / 2) + 1;
-        
-        // If the node cannot connect to any other nodes (nodes_contacted == 0), and currently only this node votes for itself
-        // Or already has the majority of votes
-        let won_election = (nodes_contacted == 0 && votes_received == 1) || votes_received >= majority;
+        let won_election = votes_received >= majority;
 
         if won_election {
             info!(
@@ -690,14 +716,22 @@ impl LocalNode {
         }
 
         let can_vote = self.voted_for.is_none() || self.voted_for == Some(req.candidate_id);
-        let log_is_current = self.log.is_empty()
-            || req.last_log_term > self.log.last().unwrap().term
-            || (req.last_log_term == self.log.last().unwrap().term
-                && req.last_log_index >= self.log.len() as u64);
+        
+        // 改进日志比较逻辑
+        let my_last_log_term = self.log.last().map_or(0, |entry| entry.term);
+        let my_last_log_index = self.log.len() as u64;
+        
+        let log_is_current = if req.last_log_term != my_last_log_term {
+            // 如果任期不同，更高任期的日志更新
+            req.last_log_term > my_last_log_term
+        } else {
+            // 如果任期相同，更长的日志更新
+            req.last_log_index >= my_last_log_index
+        };
 
         debug!(
-            "Node {} vote decision factors: can_vote={}, log_is_current={}",
-            self.node_uid, can_vote, log_is_current
+            "Node {} vote decision factors: can_vote={}, log_is_current={}, my_last_term={}, my_last_index={}, req_last_term={}, req_last_index={}",
+            self.node_uid, can_vote, log_is_current, my_last_log_term, my_last_log_index, req.last_log_term, req.last_log_index
         );
 
         if can_vote && log_is_current {
