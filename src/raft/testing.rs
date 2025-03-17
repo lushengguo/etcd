@@ -78,7 +78,7 @@ impl TestCluster {
             node_failures.push(false);
         }
 
-        // 启动RPC服务器
+        // Start RPC servers
         for i in 0..config.node_count {
             let port = config.base_port + i as u16;
             let addr = format!("127.0.0.1:{}", port);
@@ -86,7 +86,7 @@ impl TestCluster {
             
             let node_clone = nodes[i].clone();
             
-            // 创建RaftRpcService并启动服务器
+            // Create RaftRpcService and start server
             use crate::raft::raft_service::RaftRpcService;
             use tonic::transport::Server;
             
@@ -104,7 +104,7 @@ impl TestCluster {
                 }
             });
             
-            // 简单等待一下确保服务器启动
+            // Wait briefly to ensure server startup
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
@@ -135,16 +135,16 @@ impl TestCluster {
 
             tokio::spawn(async move {
                 let mut interval = time::interval(Duration::from_millis(10));
-                // 添加计数器避免无限循环
+                // Add counter to avoid infinite loop
                 let mut count = 0;
-                let max_count = 100000; // 约等于1000秒的运行时间
+                let max_count = 100000; // Approximately 1000 seconds of runtime
 
                 loop {
                     interval.tick().await;
                     count += 1;
                     
                     if count > max_count {
-                        info!("节点 {} 心跳检查达到最大次数，停止检查", node_id);
+                        info!("Node {} heartbeat check reached maximum count, stopping checks", node_id);
                         break;
                     }
 
@@ -195,7 +195,7 @@ impl TestCluster {
     pub async fn wait_for_leader(&self, timeout_ms: u64) -> Option<usize> {
         let start = SystemTime::now();
         let mut attempt_count = 0;
-        let max_attempts = 100; // 添加最大尝试次数
+        let max_attempts = 100; // Add maximum attempt count
 
         loop {
             if let Some(leader) = self.find_leader().await {
@@ -204,7 +204,7 @@ impl TestCluster {
 
             attempt_count += 1;
             if attempt_count >= max_attempts {
-                info!("超过最大尝试次数 ({}) 寻找领导者", max_attempts);
+                info!("Exceeded maximum attempt count ({}) to find leader", max_attempts);
                 return None;
             }
 
@@ -436,9 +436,9 @@ async fn test_leader_failure() -> bool {
     info!("Simulating leader failure...");
     cluster.simulate_node_failure(leader_idx).await;
 
-    // 确保剩余的节点足够选举新领导者
+    // Ensure remaining nodes are enough to elect a new leader
     if cluster.nodes.len() - 1 < (cluster.nodes.len() / 2 + 1) {
-        info!("剩余节点不足以选举新领导者，视为测试成功");
+        info!("Remaining nodes are not enough to elect a new leader, considering test successful");
         return true;
     }
 
@@ -513,13 +513,13 @@ async fn test_network_partition() -> bool {
     cluster.simulate_node_failure(3).await;
     cluster.simulate_node_failure(4).await;
 
-    // 减少等待时间
+    // Reduce waiting time
     time::sleep(Duration::from_millis(500)).await;
 
     if leader_idx >= 3 {
         info!("Old leader in minority partition, waiting for new leader to be elected in majority partition...");
         
-        // 最多等待5秒寻找新领导者
+        // Wait up to 5 seconds for a new leader
         let start_time = SystemTime::now();
         let max_wait = Duration::from_millis(5000);
         let mut found_new_leader = false;
@@ -534,7 +534,7 @@ async fn test_network_partition() -> bool {
         }
         
         if !found_new_leader {
-            info!("未在多数分区找到新领导者，但继续进行测试");
+            info!("No new leader found in the majority partition, but continuing the test");
         }
     } else {
         info!("Old leader in majority partition, should remain leader");
@@ -544,7 +544,7 @@ async fn test_network_partition() -> bool {
     let value2 = "partition_value";
     info!("Setting new key-value pair in majority partition: {}={}", key2, value2);
     
-    // 尝试多次设置键值对
+    // Try multiple times to set key-value pair
     set_success = false;
     for _ in 0..5 {
         if cluster.set_key_value(key2, value2).await {
@@ -563,12 +563,12 @@ async fn test_network_partition() -> bool {
     cluster.recover_node(3).await;
     cluster.recover_node(4).await;
 
-    // 减少等待时间
+    // Reduce waiting time
     time::sleep(Duration::from_millis(500)).await;
 
     info!("Checking key consistency...");
     
-    // 尝试多次检查一致性
+    // Try multiple times to check consistency
     let mut consistency_success = false;
     for _ in 0..5 {
         if cluster.check_consistency(key).await && cluster.check_consistency(key2).await {
@@ -616,14 +616,14 @@ async fn test_log_replication() -> bool {
 
     for i in 0..keys.len() {
         info!("Setting key-value pair: {}={}", keys[i], values[i]);
-        // 添加重试机制
+        // Add retry mechanism
         let mut set_success = false;
         for attempt in 1..=5 {
             if cluster.set_key_value(keys[i], values[i]).await {
                 set_success = true;
                 break;
             }
-            info!("尝试 {} 设置键值对失败，将重试...", attempt);
+            info!("Attempt {} to set key-value pair failed, will retry...", attempt);
             time::sleep(Duration::from_millis(200)).await;
         }
         
@@ -633,19 +633,19 @@ async fn test_log_replication() -> bool {
         }
     }
 
-    // 给更多时间进行复制
+    // Give more time for replication
     time::sleep(Duration::from_millis(800)).await;
 
     info!("Checking key consistency...");
     for key in keys {
-        // 添加一致性检查的重试机制
+        // Add retry mechanism for consistency check
         let mut consistency_success = false;
         for attempt in 1..=5 {
             if cluster.check_consistency(key).await {
                 consistency_success = true;
                 break;
             }
-            info!("尝试 {} 检查键 {} 的一致性失败，将重试...", attempt, key);
+            info!("Attempt {} to check key {} consistency failed, will retry...", attempt, key);
             time::sleep(Duration::from_millis(200)).await;
         }
         
@@ -685,7 +685,7 @@ async fn test_high_load() -> bool {
     let leader_idx = leader.unwrap();
     info!("Node {} was elected as leader", leader_idx + 1);
 
-    // 减少测试数量以避免测试时间过长
+    // Reduce test count to avoid test time out
     let test_count = 20;
     info!("Starting high load test, setting {} key-value pairs...", test_count);
 
@@ -700,7 +700,7 @@ async fn test_high_load() -> bool {
 
         info!("Setting key-value pair: {}={}", key, value);
         
-        // 尝试最多3次设置键值对
+        // Try up to 3 times to set key-value pair
         let mut key_success = false;
         for _ in 0..3 {
             if cluster.set_key_value(&key, &value).await {
@@ -716,7 +716,7 @@ async fn test_high_load() -> bool {
             failed_keys.push(key);
         }
 
-        // 每5个键值对稍作等待
+        // Wait between 5 key-value pairs
         if i % 5 == 0 && i > 0 {
             time::sleep(Duration::from_millis(50)).await;
         }
@@ -741,7 +741,7 @@ async fn test_high_load() -> bool {
         let idx = rand::thread_rng().gen_range(0..test_count);
         let key = format!("load_key_{}", idx);
 
-        // 尝试最多3次检查一致性
+        // Try up to 3 times to check consistency
         let mut consistency_success = false;
         for _ in 0..3 {
             if cluster.check_consistency(&key).await {
@@ -987,7 +987,7 @@ async fn test_log_conflict_resolution() -> bool {
 
     info!("Waiting for partition2 to elect a new leader...");
 
-    // 减少等待时间，避免测试卡住
+    // Reduce waiting time to avoid test hang
     time::sleep(Duration::from_millis(1000)).await;
 
     let new_value = "partition2_value";
@@ -996,7 +996,7 @@ async fn test_log_conflict_resolution() -> bool {
     let mut success = false;
     let max_attempts = 5;
     
-    // 尝试多次检查是否有新领导者
+    // Try multiple times to check for new leader
     for _ in 0..max_attempts {
         for &node_idx in &partition2 {
             let node = cluster.nodes[node_idx].lock().await;
@@ -1012,9 +1012,9 @@ async fn test_log_conflict_resolution() -> bool {
         time::sleep(Duration::from_millis(200)).await;
     }
 
-    // 即使没找到新领导者，我们也继续测试
+    // Even if no new leader is found, we continue the test
     if !success {
-        info!("未在分区2中找到新领导者，但继续进行测试");
+        info!("No new leader found in partition2, but continuing the test");
     }
 
     info!("Repairing network partition, reconnecting all nodes...");
@@ -1022,10 +1022,10 @@ async fn test_log_conflict_resolution() -> bool {
         cluster.recover_node(i).await;
     }
 
-    // 给系统时间来恢复和合并
+    // Give system time to recover and merge
     time::sleep(Duration::from_millis(1000)).await;
 
-    // 最多等待3秒检查是否有单一领导者
+    // Wait up to 3 seconds for a single leader
     let start_time = SystemTime::now();
     let max_wait = Duration::from_millis(3000);
     let mut has_single_leader = false;
@@ -1046,7 +1046,7 @@ async fn test_log_conflict_resolution() -> bool {
     let final_value = "final_value";
     info!("Setting final key-value pair: {}={}", key, final_value);
     
-    // 尝试多次设置键值对
+    // Try multiple times to set key-value pair
     let mut set_success = false;
     for _ in 0..5 {
         if cluster.set_key_value(key, final_value).await {
@@ -1225,7 +1225,7 @@ async fn test_multiple_elections() -> bool {
         let value = format!("round{}_value", round);
         info!("Setting key-value pair: {}={}", key, value);
         
-        // 尝试多次设置键值对
+        // Try multiple times to set key-value pair
         let mut set_success = false;
         for _ in 0..5 {
             if cluster.set_key_value(&key, &value).await {
@@ -1251,7 +1251,7 @@ async fn test_multiple_elections() -> bool {
             info!("Simulating leader {} failure, triggering next round election...", leader_idx + 1);
             cluster.simulate_node_failure(leader_idx).await;
 
-            // 减少等待时间，避免测试卡住
+            // Reduce waiting time to avoid test hang
             time::sleep(Duration::from_millis(500)).await;
         }
     }
@@ -1322,7 +1322,7 @@ async fn test_safety() -> bool {
             .create_partition(partition1.clone(), partition2.clone())
             .await;
 
-        // 减少等待时间，避免测试卡住
+        // Reduce waiting time to avoid test hang
         time::sleep(Duration::from_millis(1000)).await;
 
         let mut leader_in_partition1 = false;
@@ -1343,10 +1343,10 @@ async fn test_safety() -> bool {
             cluster.recover_node(j).await;
         }
 
-        // 减少等待时间，避免测试卡住
+        // Reduce waiting time to avoid test hang
         time::sleep(Duration::from_millis(500)).await;
 
-        // 最多等待3秒检查是否有单一领导者
+        // Wait up to 3 seconds for a single leader
         let start_time = SystemTime::now();
         let max_wait = Duration::from_millis(3000);
         let mut has_single_leader = false;
@@ -1368,7 +1368,7 @@ async fn test_safety() -> bool {
         let value = format!("safety_value_{}", i);
         info!("Setting key-value pair: {}={}", key, value);
         
-        // 尝试几次设置键值对
+        // Try multiple times to set key-value pair
         let mut set_success = false;
         for _ in 0..3 {
             if cluster.set_key_value(&key, &value).await {
@@ -1410,8 +1410,8 @@ mod tests {
     async fn test_basic_leader_election() {
         let result = timeout(TEST_TIMEOUT, test_basic_election()).await;
         match result {
-            Ok(success) => assert!(success, "基本选举测试失败"),
-            Err(_) => panic!("基本选举测试超时")
+            Ok(success) => assert!(success, "Basic election test failed"),
+            Err(_) => panic!("Basic election test timed out")
         }
     }
 
@@ -1419,8 +1419,8 @@ mod tests {
     async fn test_leader_failure_recovery() {
         let result = timeout(TEST_TIMEOUT, test_leader_failure()).await;
         match result {
-            Ok(success) => assert!(success, "领导者故障恢复测试失败"),
-            Err(_) => panic!("领导者故障恢复测试超时")
+            Ok(success) => assert!(success, "Leader failure recovery test failed"),
+            Err(_) => panic!("Leader failure recovery test timed out")
         }
     }
 
@@ -1428,8 +1428,8 @@ mod tests {
     async fn test_network_partition_scenario() {
         let result = timeout(TEST_TIMEOUT, test_network_partition()).await;
         match result {
-            Ok(success) => assert!(success, "网络分区测试失败"),
-            Err(_) => panic!("网络分区测试超时")
+            Ok(success) => assert!(success, "Network partition test failed"),
+            Err(_) => panic!("Network partition test timed out")
         }
     }
 
@@ -1437,8 +1437,8 @@ mod tests {
     async fn test_log_replication_consistency() {
         let result = timeout(TEST_TIMEOUT, test_log_replication()).await;
         match result {
-            Ok(success) => assert!(success, "日志复制一致性测试失败"),
-            Err(_) => panic!("日志复制一致性测试超时")
+            Ok(success) => assert!(success, "Log replication consistency test failed"),
+            Err(_) => panic!("Log replication consistency test timed out")
         }
     }
 
@@ -1446,8 +1446,8 @@ mod tests {
     async fn test_membership_change_scenario() {
         let result = timeout(TEST_TIMEOUT, test_membership_change()).await;
         match result {
-            Ok(success) => assert!(success, "成员变更测试失败"),
-            Err(_) => panic!("成员变更测试超时")
+            Ok(success) => assert!(success, "Membership change test failed"),
+            Err(_) => panic!("Membership change test timed out")
         }
     }
 
@@ -1455,8 +1455,8 @@ mod tests {
     async fn test_log_conflict_resolution_scenario() {
         let result = timeout(TEST_TIMEOUT, test_log_conflict_resolution()).await;
         match result {
-            Ok(success) => assert!(success, "日志冲突解决测试失败"),
-            Err(_) => panic!("日志冲突解决测试超时")
+            Ok(success) => assert!(success, "Log conflict resolution test failed"),
+            Err(_) => panic!("Log conflict resolution test timed out")
         }
     }
 
@@ -1464,8 +1464,8 @@ mod tests {
     async fn test_follower_crash_recovery_scenario() {
         let result = timeout(TEST_TIMEOUT, test_follower_crash_recovery()).await;
         match result {
-            Ok(success) => assert!(success, "跟随者崩溃恢复测试失败"),
-            Err(_) => panic!("跟随者崩溃恢复测试超时")
+            Ok(success) => assert!(success, "Follower crash recovery test failed"),
+            Err(_) => panic!("Follower crash recovery test timed out")
         }
     }
 
@@ -1473,17 +1473,17 @@ mod tests {
     async fn test_multiple_elections_scenario() {
         let result = timeout(TEST_TIMEOUT, test_multiple_elections()).await;
         match result {
-            Ok(success) => assert!(success, "多次选举测试失败"),
-            Err(_) => panic!("多次选举测试超时")
+            Ok(success) => assert!(success, "Multiple elections test failed"),
+            Err(_) => panic!("Multiple elections test timed out")
         }
     }
-
+ 
     #[tokio::test]
     async fn test_safety_scenario() {
         let result = timeout(TEST_TIMEOUT, test_safety()).await;
         match result {
-            Ok(success) => assert!(success, "安全性测试失败"),
-            Err(_) => panic!("安全性测试超时")
+            Ok(success) => assert!(success, "Safety test failed"),
+            Err(_) => panic!("Safety test timed out")
         }
     }
 
@@ -1491,8 +1491,8 @@ mod tests {
     async fn test_high_load_scenario() {
         let result = timeout(TEST_TIMEOUT, test_high_load()).await;
         match result {
-            Ok(success) => assert!(success, "高负载测试失败"),
-            Err(_) => panic!("高负载测试超时")
+            Ok(success) => assert!(success, "High load test failed"),
+            Err(_) => panic!("High load test timed out")
         }
     }
 
@@ -1500,8 +1500,8 @@ mod tests {
     async fn test_random_failures_scenario() {
         let result = timeout(TEST_TIMEOUT, test_random_failures()).await;
         match result {
-            Ok(success) => assert!(success, "随机故障测试失败"),
-            Err(_) => panic!("随机故障测试超时")
+            Ok(success) => assert!(success, "Random failures test failed"),
+            Err(_) => panic!("Random failures test timed out")
         }
     }
 }

@@ -63,10 +63,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let args: Vec<String> = std::env::args().collect();
     
-    // 默认连接地址
+    // Default connection address
     let mut addr = "127.0.0.1:2379".to_string();
     
-    // 解析命令行参数
+    // Parse command line arguments
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {

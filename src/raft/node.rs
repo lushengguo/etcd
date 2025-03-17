@@ -160,7 +160,7 @@ impl LocalNode {
             self.node_uid, self.current_term, self.client_to_cluster.len() - 1
         );
 
-        let mut success_count = 1; // 自己算一个成功
+        let mut success_count = 1; // Count self as success
 
         for (node_uid, addr) in self.client_to_cluster.clone() {
             if node_uid == self.node_uid {
@@ -513,8 +513,8 @@ impl LocalNode {
 
         let majority = (total_nodes / 2) + 1;
         
-        // 如果节点无法连接到任何其他节点（nodes_contacted == 0），且当前只有本节点投票给自己
-        // 或者已经获得多数票
+        // If the node cannot connect to any other nodes (nodes_contacted == 0), and currently only this node votes for itself
+        // Or already has the majority of votes
         let won_election = (nodes_contacted == 0 && votes_received == 1) || votes_received >= majority;
 
         if won_election {
@@ -567,9 +567,9 @@ impl LocalNode {
                 }
             }
             _ => {
-                // 检查是否是单节点集群（只有自己）
+                // Check if it's a single-node cluster (only itself)
                 if self.client_to_cluster.len() == 1 && self.client_to_cluster.contains_key(&self.node_uid) {
-                    // 如果是单节点集群，直接成为领导者
+                    // If it's a single-node cluster, directly become the leader
                     if self.state != NodeState::Leader {
                         info!(
                             "Node {} is the only node in cluster, becoming leader for term {}",
@@ -639,7 +639,7 @@ impl LocalNode {
                 "Node {} processing {} log entries from leader {}",
                 self.node_uid, req.entries.len(), req.leader_id
             );
-            // 这里应该有处理日志条目的代码
+            // Here should be code to process log entries
         }
 
         if req.leader_commit > self.commit_index {
@@ -774,7 +774,7 @@ impl LocalNode {
             return Ok(());
         }
 
-        // 序列化当前的状态机状态
+        // Serialize the current state machine state
         let state_machine_data = serde_json::to_vec(&self.kv_store)?;
         
         let snapshot = Snapshot {
@@ -783,15 +783,15 @@ impl LocalNode {
             data: state_machine_data,
         };
 
-        // 持久化快照
+        // Persist snapshot
         let snapshot_path = format!("snapshot_{}.json", self.node_uid);
         let json = serde_json::to_string(&snapshot)?;
         fs::write(snapshot_path, json)?;
 
-        // 压缩日志
+        // Compress logs
         self.log.drain(0..=last_index as usize);
         
-        // 更新索引
+        // Update indexes
         self.last_applied = last_index;
         self.commit_index = last_index;
 
@@ -803,10 +803,10 @@ impl LocalNode {
             return Ok(());
         }
 
-        // 恢复状态机状态
+        // Restore state machine state
         self.kv_store = serde_json::from_slice(&snapshot.data)?;
 
-        // 更新日志
+        // Update logs
         self.log.clear();
         self.log.push(LogEntry::new(
             snapshot.last_included_term,
@@ -814,16 +814,16 @@ impl LocalNode {
             String::new(),
         ));
 
-        // 更新索引
+        // Update indexes
         self.last_applied = snapshot.last_included_index;
         self.commit_index = snapshot.last_included_index;
 
         Ok(())
     }
 
-    // 检查是否需要创建快照
+    // Check if snapshot creation is needed
     pub async fn check_snapshot_needed(&mut self) -> Result<(), Box<dyn Error>> {
-        const SNAPSHOT_THRESHOLD: usize = 1000; // 可配置的阈值
+        const SNAPSHOT_THRESHOLD: usize = 1000; // Configurable threshold
         if self.log.len() > SNAPSHOT_THRESHOLD {
             self.create_snapshot().await?;
         }
@@ -831,12 +831,12 @@ impl LocalNode {
     }
 
     pub async fn change_configuration(&mut self, new_members: HashMap<u64, String>) -> Result<(), Box<dyn Error>> {
-        // 确保是 Leader
+        // Ensure it's the Leader
         if self.state != NodeState::Leader {
             return Err("Only leader can change configuration".into());
         }
 
-        // 创建新配置
+        // Create new configuration
         let old_config = Configuration {
             members: self.client_to_cluster.clone(),
         };
@@ -844,10 +844,10 @@ impl LocalNode {
             members: new_members.clone(),
         };
 
-        // 进入 Joint Consensus 阶段
+        // Enter Joint Consensus phase
         self.configuration_state = Some(ConfigurationState::Joint(old_config.clone(), new_config.clone()));
 
-        // 创建配置变更日志条目
+        // Create configuration change log entry
         let config_command = Command::new_config_change(old_config, new_config.clone());
         let config_entry = LogEntry::new(
             self.current_term,
@@ -856,21 +856,21 @@ impl LocalNode {
         );
         self.log.push(config_entry);
 
-        // 等待日志复制
+        // Wait for log replication
         let log_index = (self.log.len() - 1) as u64;
         self.replicate_log().await;
 
-        // 等待日志提交
+        // Wait for log commit
         while self.commit_index < log_index {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         }
 
-        // 切换到新配置
+        // Switch to new configuration
         self.client_to_cluster = new_members;
         let config_state = ConfigurationState::Stable(new_config);
         self.configuration_state = Some(config_state);
 
-        // 更新 next_index 和 match_index
+        // Update next_index and match_index
         self.next_index.clear();
         self.match_index.clear();
         for &node_id in self.client_to_cluster.keys() {
@@ -881,12 +881,12 @@ impl LocalNode {
         Ok(())
     }
 
-    // 处理配置变更日志条目
+    // Handle configuration change log entries
     async fn apply_config_change(&mut self, old_config: Configuration, new_config: Configuration) {
-        // 进入 Joint Consensus 阶段
+        // Enter Joint Consensus phase
         self.configuration_state = Some(ConfigurationState::Joint(old_config, new_config.clone()));
         
-        // 应用新配置
+        // Apply new configuration
         self.client_to_cluster = new_config.members.clone();
         self.configuration_state = Some(ConfigurationState::Stable(new_config));
     }

@@ -3,12 +3,12 @@ use etcd::raft::testing::{TestScenario, run_test_scenario};
 
 #[tokio::main]
 async fn main() {
-    // 初始化日志系统
+    // Initialize logging system
     env_logger::init();
     
     info!("=== Starting Raft Tests ===");
     
-    // 定义要运行的测试集
+    // Define test suite to run
     let tests = vec![
         ("BasicElection", TestScenario::BasicElection),
         ("LeaderFailure", TestScenario::LeaderFailure),
@@ -26,7 +26,7 @@ async fn main() {
     let mut passed = 0;
     let mut failed = 0;
     
-    // 运行测试
+    // Run tests
     for (name, scenario) in tests {
         info!("\n\n=== Running Test: {} ===\n", name);
         let result = run_test_scenario(scenario).await;
@@ -40,7 +40,7 @@ async fn main() {
         }
     }
     
-    // 打印测试结果摘要
+    // Print test results summary
     info!("\n\n=== Test Results ===");
     info!("Total Tests: {}", passed + failed);
     info!("Passed: {}", passed);
