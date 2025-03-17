@@ -61,7 +61,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .init();
 
-    let mut client = Client::connect("127.0.0.1:2379").await?;
+    let args: Vec<String> = std::env::args().collect();
+    
+    // 默认连接地址
+    let mut addr = "127.0.0.1:2379".to_string();
+    
+    // 解析命令行参数
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--addr" => {
+                if i + 1 < args.len() {
+                    addr = args[i + 1].clone();
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    let mut client = Client::connect(&addr).await?;
 
     let success = client.set("test_key", "test_value").await?;
     info!("Set key-value pair: {}", success);

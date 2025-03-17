@@ -28,26 +28,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let args: Vec<String> = std::env::args().collect();
+    
+    // 默认值
+    let mut etcd_addr = "127.0.0.1:2379".to_string();
+    let mut raft_addr = "127.0.0.1:2380".to_string();
+    let mut node_id: u64 = 1;
+    let mut cluster_conf = String::new();
+    
+    // 解析命名参数
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--node-id" => {
+                if i + 1 < args.len() {
+                    node_id = args[i + 1].parse()?;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            "--etcd-port" => {
+                if i + 1 < args.len() {
+                    etcd_addr = format!("127.0.0.1:{}", args[i + 1]);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            "--raft-port" => {
+                if i + 1 < args.len() {
+                    raft_addr = format!("127.0.0.1:{}", args[i + 1]);
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            "--cluster-conf" => {
+                if i + 1 < args.len() {
+                    cluster_conf = args[i + 1].clone();
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    
+    // 如果没有指定集群配置，则使用默认值
+    if cluster_conf.is_empty() {
+        cluster_conf = format!("{}={}", node_id, raft_addr);
+    }
 
-    let etcd_addr: SocketAddr = if args.len() > 1 {
-        args[1].parse()?
-    } else {
-        "127.0.0.1:2379".parse()?
-    };
-
-    let raft_addr: SocketAddr = if args.len() > 2 {
-        args[2].parse()?
-    } else {
-        "127.0.0.1:2380".parse()?
-    };
-
-    let node_id: u64 = if args.len() > 3 { args[3].parse()? } else { 1 };
-
-    let cluster_conf = if args.len() > 4 {
-        args[4].clone()
-    } else {
-        format!("{}={}", node_id, raft_addr)
-    };
+    let etcd_addr: SocketAddr = etcd_addr.parse()?;
+    let raft_addr: SocketAddr = raft_addr.parse()?;
 
     info!("Starting node ID: {}", node_id);
     info!("Starting etcd service at address {}", etcd_addr);
