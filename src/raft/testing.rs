@@ -84,7 +84,7 @@ impl TestCluster {
             node_failures.push(false);
         }
 
-        // 启动 RPC 服务器并等待较短时间
+        // 启动 RPC 服务器
         for i in 0..config.node_count {
             let port = config.base_port + i as u16;
             let addr = format!("127.0.0.1:{}", port);
@@ -109,7 +109,7 @@ impl TestCluster {
                 }
             });
             
-            tokio::time::sleep(Duration::from_millis(50)).await;  // 减少等待时间
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
         Self {
@@ -135,18 +135,14 @@ impl TestCluster {
             let node = self.nodes[i].clone();
             let simulate_delay = self.config.simulate_network_delay;
             let delay_ms = self.config.network_delay_ms;
-            let node_id = i + 1;
 
             tokio::spawn(async move {
                 let mut interval = time::interval(Duration::from_millis(50));
-                
                 loop {
                     interval.tick().await;
-                    
                     if simulate_delay {
                         time::sleep(Duration::from_millis(delay_ms)).await;
                     }
-
                     let mut node_guard = node.lock().await;
                     node_guard.handle_heartbeat_timeout().await;
                 }
@@ -154,7 +150,16 @@ impl TestCluster {
         }
 
         // 等待较短时间让集群初始化
-        time::sleep(Duration::from_secs(1)).await;
+        time::sleep(Duration::from_millis(500)).await;
+    }
+
+    pub async fn stop(&mut self) {
+        if !self.running {
+            return;
+        }
+
+        self.running = false;
+        time::sleep(Duration::from_millis(100)).await;
     }
 
     pub async fn simulate_node_failure(&mut self, node_idx: usize) {
@@ -393,6 +398,13 @@ impl TestCluster {
         }
 
         leader_count <= 1
+    }
+}
+
+// 为 TestCluster 实现 Drop trait
+impl Drop for TestCluster {
+    fn drop(&mut self) {
+        self.running = false;
     }
 }
 
@@ -1610,41 +1622,107 @@ async fn test_safety() -> bool {
 mod tests {
     use super::*;
     use tokio::time::timeout;
+    use std::time::Duration;
+    use log::info;
 
-    const TEST_TIMEOUT: Duration = Duration::from_secs(120);
-    const ELECTION_TIMEOUT: Duration = Duration::from_secs(10);
-    const OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
-    const STABILITY_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+    const TEST_TIMEOUT: Duration = Duration::from_secs(5);  // 进一步减少超时时间
+    const ELECTION_TIMEOUT: Duration = Duration::from_secs(2);  // 减少选举超时
+    const WAIT_INTERVAL: Duration = Duration::from_millis(50);  // 统一等待间隔
+
+    async fn setup_test_cluster(node_count: usize) -> TestCluster {
+        let mut config = TestClusterConfig::default();
+        config.node_count = node_count;
+        config.network_delay_ms = 10;  // 减少网络延迟
+        let mut cluster = TestCluster::new(config).await;
+        cluster.start().await;
+        tokio::time::sleep(WAIT_INTERVAL).await;  // 等待集群启动
+        cluster
+    }
 
     #[tokio::test]
     async fn test_basic_election() {
         let result = timeout(TEST_TIMEOUT, async {
-            info!("Starting test: Basic Leader Election");
-
-            let config = TestClusterConfig::default();
-            let mut cluster = TestCluster::new(config).await;
-            cluster.start().await;
-
-            info!("Waiting for cluster to elect a leader...");
+            info!("开始基本选举测试");
+            let cluster = setup_test_cluster(3).await;
+            
+            info!("等待选举领导者...");
             let leader = cluster.wait_for_leader(ELECTION_TIMEOUT.as_millis() as u64).await;
-
-            if leader.is_none() {
-                panic!("Test failed: Cluster did not elect a leader within the specified time");
-            }
-
+            assert!(leader.is_some(), "未能在超时时间内选出领导者");
+            
             let leader_idx = leader.unwrap();
-            info!("Node {} was elected as leader", leader_idx + 1);
-
-            // 等待一段时间确保集群稳定
-            time::sleep(STABILITY_CHECK_INTERVAL).await;
-
+            info!("节点 {} 被选为领导者", leader_idx + 1);
+            
             let status = cluster.get_status_summary().await;
-            info!("Cluster status: {}", status);
+            info!("集群状态: {}", status);
+            
+            assert!(cluster.check_single_leader().await, "集群中存在多个领导者");
         }).await;
 
         match result {
-            Ok(_) => (),
-            Err(_) => panic!("Test timed out"),
+            Ok(_) => info!("基本选举测试成功完成"),
+            Err(_) => panic!("测试超时"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_leader_failure() {
+        let result = timeout(TEST_TIMEOUT, async {
+            info!("开始领导者故障测试");
+            let mut cluster = setup_test_cluster(3).await;
+
+            info!("等待选举初始领导者...");
+            let leader = cluster.wait_for_leader(ELECTION_TIMEOUT.as_millis() as u64).await;
+            assert!(leader.is_some(), "未能在超时时间内选出初始领导者");
+
+            let leader_idx = leader.unwrap();
+            info!("节点 {} 被选为初始领导者", leader_idx + 1);
+
+            info!("模拟领导者故障...");
+            cluster.simulate_node_failure(leader_idx).await;
+            tokio::time::sleep(WAIT_INTERVAL).await;
+
+            info!("等待选举新领导者...");
+            let new_leader = cluster.wait_for_leader(ELECTION_TIMEOUT.as_millis() as u64).await;
+            assert!(new_leader.is_some(), "未能在超时时间内选出新领导者");
+            assert_ne!(new_leader.unwrap(), leader_idx, "新领导者不应该是故障节点");
+
+            let status = cluster.get_status_summary().await;
+            info!("集群状态: {}", status);
+        }).await;
+
+        match result {
+            Ok(_) => info!("领导者故障测试成功完成"),
+            Err(_) => panic!("测试超时"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_log_replication() {
+        let result = timeout(TEST_TIMEOUT, async {
+            info!("开始日志复制测试");
+            let cluster = setup_test_cluster(3).await;
+
+            info!("等待选举领导者...");
+            let leader = cluster.wait_for_leader(ELECTION_TIMEOUT.as_millis() as u64).await;
+            assert!(leader.is_some(), "未能在超时时间内选出领导者");
+
+            let key = "test_key";
+            let value = "test_value";
+            info!("设置键值对: {}={}", key, value);
+            assert!(cluster.set_key_value(key, value).await, "无法设置键值对");
+
+            tokio::time::sleep(WAIT_INTERVAL).await;  // 等待复制完成
+
+            info!("检查键值一致性");
+            assert!(cluster.check_consistency(key).await, "键值在节点间不一致");
+
+            let status = cluster.get_status_summary().await;
+            info!("集群状态: {}", status);
+        }).await;
+
+        match result {
+            Ok(_) => info!("日志复制测试成功完成"),
+            Err(_) => panic!("测试超时"),
         }
     }
 }

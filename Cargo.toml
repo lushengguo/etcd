@@ -20,6 +20,9 @@ futures = "0.3"
 [build-dependencies]
 tonic-build = "0.10"
 
+[dev-dependencies]
+serial_test = "*"
+
 [[bin]]
 name = "server"
 path = "src/server.rs"

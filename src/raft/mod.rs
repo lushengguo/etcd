@@ -5,9 +5,11 @@ pub mod raft_client;
 pub mod raft_service;
 pub mod rpc;
 mod state;
+use serial_test::serial;
 pub mod testing;
 
 #[cfg(test)]
+#[serial]
 mod tests {
     use super::testing::*;
     use tokio::time::timeout;
